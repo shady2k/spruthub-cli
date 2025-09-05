@@ -73,14 +73,36 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
     // If source is just a number/scenario index, try to find it in scenarios/ directory
     if (/^\d+$/.test(source)) {
       const scenariosDir = resolve(process.cwd(), 'scenarios');
-      const scenarioFile = resolve(scenariosDir, `${source}.json`);
       
-      try {
-        await fs.access(scenarioFile);
-        sourcePath = scenarioFile;
-        console.log(chalk.gray(`Using scenario file: ${scenarioFile}`));
-      } catch {
-        // Fall through to original error handling
+      // Try to find the scenario file in type subdirectories
+      const scenarioTypes = ['block', 'logic', 'global', 'unknown'];
+      let found = false;
+      
+      for (const type of scenarioTypes) {
+        const typeDir = resolve(scenariosDir, type);
+        const scenarioFile = resolve(typeDir, `${source}.json`);
+        
+        try {
+          await fs.access(scenarioFile);
+          sourcePath = scenarioFile;
+          console.log(chalk.gray(`Using scenario file: ${scenarioFile}`));
+          found = true;
+          break;
+        } catch {
+          // Continue searching in other type directories
+        }
+      }
+      
+      // If not found in type subdirectories, try the legacy flat structure
+      if (!found) {
+        const scenarioFile = resolve(scenariosDir, `${source}.json`);
+        try {
+          await fs.access(scenarioFile);
+          sourcePath = scenarioFile;
+          console.log(chalk.gray(`Using scenario file: ${scenarioFile}`));
+        } catch {
+          // Fall through to original error handling
+        }
       }
     }
     
@@ -98,9 +120,45 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
     if (stat.isDirectory()) {
       // Process all .json files in directory
       const files = await fs.readdir(sourcePath);
+      const scenarioTypes = ['block', 'logic', 'global', 'unknown'];
+      let hasTypeSubdirectories = false;
+      
+      // Check if this directory has type subdirectories
       for (const file of files) {
-        if (file.endsWith('.json')) {
-          filesToProcess.push(resolve(sourcePath, file));
+        const filePath = resolve(sourcePath, file);
+        const fileStat = await fs.stat(filePath);
+        if (fileStat.isDirectory() && scenarioTypes.includes(file.toLowerCase())) {
+          hasTypeSubdirectories = true;
+          break;
+        }
+      }
+      
+      if (hasTypeSubdirectories) {
+        // New structure: process files in type subdirectories
+        console.log(chalk.blue('Processing type-based scenario directory structure'));
+        for (const file of files) {
+          const filePath = resolve(sourcePath, file);
+          try {
+            const fileStat = await fs.stat(filePath);
+            if (fileStat.isDirectory() && scenarioTypes.includes(file.toLowerCase())) {
+              const typeFiles = await fs.readdir(filePath);
+              for (const typeFile of typeFiles) {
+                if (typeFile.endsWith('.json')) {
+                  filesToProcess.push(resolve(filePath, typeFile));
+                }
+              }
+            }
+          } catch (error) {
+            console.warn(chalk.yellow(`⚠ Could not access ${file}:`, error));
+          }
+        }
+      } else {
+        // Legacy structure: process .json files directly
+        console.log(chalk.blue('Processing flat scenario directory structure'));
+        for (const file of files) {
+          if (file.endsWith('.json')) {
+            filesToProcess.push(resolve(sourcePath, file));
+          }
         }
       }
       
@@ -358,8 +416,20 @@ export async function pullCommand(scenario?: string, destination?: string, optio
         process.exit(1);
       }
 
+      // Create type-specific subdirectory
+      const scenarioType = response.data.type?.toLowerCase() || 'unknown';
+      const typeDir = resolve(scenariosDir, scenarioType);
+      
+      try {
+        await fs.mkdir(typeDir, { recursive: true });
+      } catch (error) {
+        spinner.fail(`Failed to create ${scenarioType} directory`);
+        console.error(chalk.red('Error:'), error);
+        process.exit(1);
+      }
+
       const filename = `${scenario}.json`;
-      const filePath = resolve(scenariosDir, filename);
+      const filePath = resolve(typeDir, filename);
       
       // Check if file exists and handle conflicts
       let existingData = null;
@@ -378,49 +448,50 @@ export async function pullCommand(scenario?: string, destination?: string, optio
             shouldOverwrite = await askForConfirmation(`Overwrite invalid file ${filename}?`);
           }
         }
+      } catch {
+        // File doesn't exist, we should create it
+        shouldOverwrite = true;
+      }
+      
+      // If we have valid existing data, compare it
+      if (existingData && !shouldOverwrite) {
+        const areEqual = await compareScenarios(existingData, response.data);
         
-        // If we have valid existing data, compare it
-        if (existingData && !shouldOverwrite) {
-          const areEqual = await compareScenarios(existingData, response.data);
-          
-          if (areEqual) {
-            spinner.succeed(`✓ No changes detected for scenario ${scenario}`);
-            return;
-          }
-          
-          // Stop spinner before showing diff and asking for confirmation
-          spinner.stop();
-          
-          // Show diff summary
-          console.log(chalk.yellow(`⚠ Changes detected for scenario ${scenario}:`));
-          
-          const changes = [];
-          if (existingData.name !== response.data.name) {
-            changes.push(`  name: "${existingData.name}" → "${response.data.name}"`);
-          }
-          if (existingData.desc !== response.data.desc) {
-            changes.push(`  desc: "${existingData.desc}" → "${response.data.desc}"`);
-          }
-          if (existingData.active !== response.data.active) {
-            changes.push(`  active: ${existingData.active} → ${response.data.active}`);
-          }
-          if (existingData.data !== response.data.data) {
-            changes.push(`  data: <scenario logic changed>`);
-          }
-          
-          if (changes.length > 0) {
-            console.log(changes.join('\n'));
-          }
-          
-          shouldOverwrite = await askForConfirmation(`Update local file ${filename}?`);
-        }
-        
-        if (!shouldOverwrite) {
-          console.log(chalk.yellow(`⚠ Skipped scenario ${scenario}`));
+        if (areEqual) {
+          spinner.succeed(`✓ No changes detected for scenario ${scenario}`);
           return;
         }
-      } catch {
-        // File doesn't exist, continue with creation
+        
+        // Stop spinner before showing diff and asking for confirmation
+        spinner.stop();
+        
+        // Show diff summary
+        console.log(chalk.yellow(`⚠ Changes detected for scenario ${scenario}:`));
+        
+        const changes = [];
+        if (existingData.name !== response.data.name) {
+          changes.push(`  name: "${existingData.name}" → "${response.data.name}"`);
+        }
+        if (existingData.desc !== response.data.desc) {
+          changes.push(`  desc: "${existingData.desc}" → "${response.data.desc}"`);
+        }
+        if (existingData.active !== response.data.active) {
+          changes.push(`  active: ${existingData.active} → ${response.data.active}`);
+        }
+        if (existingData.data !== response.data.data) {
+          changes.push(`  data: <scenario logic changed>`);
+        }
+        
+        if (changes.length > 0) {
+          console.log(changes.join('\n'));
+        }
+        
+        shouldOverwrite = await askForConfirmation(`Update local file ${filename}?`);
+      }
+      
+      if (!shouldOverwrite) {
+        console.log(chalk.yellow(`⚠ Skipped scenario ${scenario}`));
+        return;
       }
 
       // Create JSON file with raw scenario data
@@ -496,15 +567,45 @@ export async function pullCommand(scenario?: string, destination?: string, optio
         continue;
       }
 
+      // Get complete scenario data using scenario.get to determine type
+      let fullScenarioResponse;
+      try {
+        fullScenarioResponse = await client.callMethod('scenario.get', { index: scenario.index }, options.profile);
+        
+        if (!fullScenarioResponse.isSuccess || !fullScenarioResponse.data) {
+          console.error(chalk.red(`✗ Failed to fetch scenario ${scenario.index}:`), fullScenarioResponse.message);
+          skippedCount++;
+          continue;
+        }
+      } catch (error) {
+        console.error(chalk.red(`✗ Failed to fetch scenario ${scenario.index}:`), error);
+        skippedCount++;
+        continue;
+      }
+
+      // Create type-specific subdirectory
+      const scenarioType = fullScenarioResponse.data.type?.toLowerCase() || 'unknown';
+      const typeDir = resolve(scenariosDir, scenarioType);
+      
+      try {
+        await fs.mkdir(typeDir, { recursive: true });
+      } catch (error) {
+        console.error(chalk.red(`✗ Failed to create ${scenarioType} directory:`), error);
+        skippedCount++;
+        continue;
+      }
+
       const filename = `${scenario.index}.json`;
-      const filePath = resolve(scenariosDir, filename);
+      const filePath = resolve(typeDir, filename);
       
       // Check if file exists and handle conflicts
       let existingData = null;
       let shouldOverwrite = options.force;
+      let fileExists = false;
       
       try {
         await fs.access(filePath);
+        fileExists = true;
         // File exists, read current content for comparison
         const existingContent = await fs.readFile(filePath, 'utf8');
         try {
@@ -517,62 +618,54 @@ export async function pullCommand(scenario?: string, destination?: string, optio
           }
         }
       } catch {
-        // File doesn't exist, continue with creation
+        // File doesn't exist, we should create it
+        shouldOverwrite = true;
       }
 
-      // Get complete scenario data using scenario.get
+      // If we have existing data and not forcing, compare it
+      if (existingData && !shouldOverwrite) {
+        const areEqual = await compareScenarios(existingData, fullScenarioResponse.data);
+        
+        if (areEqual) {
+          console.log(chalk.green(`✓ No changes detected for scenario ${scenario.index}`));
+          skippedCount++;
+          continue;
+        }
+        
+        // Show diff summary
+        console.log(chalk.yellow(`⚠ Changes detected for scenario ${scenario.index}:`));
+        
+        const changes = [];
+        if (existingData.name !== fullScenarioResponse.data.name) {
+          changes.push(`  name: "${existingData.name}" → "${fullScenarioResponse.data.name}"`);
+        }
+        if (existingData.desc !== fullScenarioResponse.data.desc) {
+          changes.push(`  desc: "${existingData.desc}" → "${fullScenarioResponse.data.desc}"`);
+        }
+        if (existingData.active !== fullScenarioResponse.data.active) {
+          changes.push(`  active: ${existingData.active} → ${fullScenarioResponse.data.active}`);
+        }
+        if (existingData.data !== fullScenarioResponse.data.data) {
+          changes.push(`  data: <scenario logic changed>`);
+        }
+        
+        if (changes.length > 0) {
+          console.log(changes.join('\n'));
+        }
+        
+        shouldOverwrite = await askForConfirmation(`Update local file ${filename}?`);
+      }
+      
+      if (!shouldOverwrite) {
+        console.log(chalk.yellow(`⚠ Skipped scenario ${scenario.index}`));
+        skippedCount++;
+        continue;
+      }
+
+      // Create JSON file with raw scenario data
+      const jsonContent = JSON.stringify(fullScenarioResponse.data, null, 2);
+      
       try {
-        const fullScenarioResponse = await client.callMethod('scenario.get', { index: scenario.index }, options.profile);
-        
-        if (!fullScenarioResponse.isSuccess || !fullScenarioResponse.data) {
-          console.error(chalk.red(`✗ Failed to fetch scenario ${scenario.index}:`), fullScenarioResponse.message);
-          skippedCount++;
-          continue;
-        }
-
-        // If we have existing data and not forcing, compare it
-        if (existingData && !shouldOverwrite) {
-          const areEqual = await compareScenarios(existingData, fullScenarioResponse.data);
-          
-          if (areEqual) {
-            console.log(chalk.green(`✓ No changes detected for scenario ${scenario.index}`));
-            skippedCount++;
-            continue;
-          }
-          
-          // Show diff summary
-          console.log(chalk.yellow(`⚠ Changes detected for scenario ${scenario.index}:`));
-          
-          const changes = [];
-          if (existingData.name !== fullScenarioResponse.data.name) {
-            changes.push(`  name: "${existingData.name}" → "${fullScenarioResponse.data.name}"`);
-          }
-          if (existingData.desc !== fullScenarioResponse.data.desc) {
-            changes.push(`  desc: "${existingData.desc}" → "${fullScenarioResponse.data.desc}"`);
-          }
-          if (existingData.active !== fullScenarioResponse.data.active) {
-            changes.push(`  active: ${existingData.active} → ${fullScenarioResponse.data.active}`);
-          }
-          if (existingData.data !== fullScenarioResponse.data.data) {
-            changes.push(`  data: <scenario logic changed>`);
-          }
-          
-          if (changes.length > 0) {
-            console.log(changes.join('\n'));
-          }
-          
-          shouldOverwrite = await askForConfirmation(`Update local file ${filename}?`);
-        }
-        
-        if (!shouldOverwrite) {
-          console.log(chalk.yellow(`⚠ Skipped scenario ${scenario.index}`));
-          skippedCount++;
-          continue;
-        }
-
-        // Create JSON file with raw scenario data
-        const jsonContent = JSON.stringify(fullScenarioResponse.data, null, 2);
-        
         await fs.writeFile(filePath, jsonContent);
         createdCount++;
       } catch (error) {
@@ -584,7 +677,7 @@ export async function pullCommand(scenario?: string, destination?: string, optio
     // Summary
     console.log();
     if (createdCount > 0) {
-      console.log(chalk.green(`✓ Created ${createdCount} scenario files in ${scenariosDir}`));
+      console.log(chalk.green(`✓ Created ${createdCount} scenario files organized by type in ${scenariosDir}`));
     }
     if (skippedCount > 0) {
       console.log(chalk.yellow(`⚠ Skipped ${skippedCount} scenarios`));
