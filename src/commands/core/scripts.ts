@@ -4,6 +4,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import client from '../../utils/client.js';
 import type { CommandOptions } from '../../types/index.js';
+import { extractScenarioCode, injectScenarioCode, hasExtractedCode, type ScenarioData } from '../../utils/scenario-code.js';
 
 async function validateScenarioData(data: any): Promise<boolean> {
   // Basic validation - ensure it's a valid scenario object
@@ -74,18 +75,32 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
     if (/^\d+$/.test(source)) {
       const scenariosDir = resolve(process.cwd(), 'scenarios');
       
-      // Try to find the scenario file in type subdirectories
+      // Try to find the scenario directory in type subdirectories
       const scenarioTypes = ['block', 'logic', 'global', 'unknown'];
       let found = false;
       
       for (const type of scenarioTypes) {
         const typeDir = resolve(scenariosDir, type);
-        const scenarioFile = resolve(typeDir, `${source}.json`);
+        const scenarioDir = resolve(typeDir, source);
         
+        try {
+          // Check if this is a new directory structure with extracted files
+          if (await hasExtractedCode(scenarioDir)) {
+            sourcePath = scenarioDir;
+            console.log(chalk.gray(`Using scenario directory: ${scenarioDir}`));
+            found = true;
+            break;
+          }
+        } catch {
+          // Continue searching in other type directories
+        }
+        
+        // Fallback: try legacy JSON file structure
+        const scenarioFile = resolve(typeDir, `${source}.json`);
         try {
           await fs.access(scenarioFile);
           sourcePath = scenarioFile;
-          console.log(chalk.gray(`Using scenario file: ${scenarioFile}`));
+          console.log(chalk.gray(`Using legacy scenario file: ${scenarioFile}`));
           found = true;
           break;
         } catch {
@@ -118,58 +133,73 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
 
     // Determine files to process
     if (stat.isDirectory()) {
-      // Process all .json files in directory
-      const files = await fs.readdir(sourcePath);
-      const scenarioTypes = ['block', 'logic', 'global', 'unknown'];
-      let hasTypeSubdirectories = false;
-      
-      // Check if this directory has type subdirectories
-      for (const file of files) {
-        const filePath = resolve(sourcePath, file);
-        const fileStat = await fs.stat(filePath);
-        if (fileStat.isDirectory() && scenarioTypes.includes(file.toLowerCase())) {
-          hasTypeSubdirectories = true;
-          break;
-        }
-      }
-      
-      if (hasTypeSubdirectories) {
-        // New structure: process files in type subdirectories
-        console.log(chalk.blue('Processing type-based scenario directory structure'));
+      // Check if this is a single scenario directory with extracted code
+      if (await hasExtractedCode(sourcePath)) {
+        console.log(chalk.blue('Processing single extracted scenario directory'));
+        filesToProcess.push(sourcePath);
+      } else {
+        // Process all scenarios in directory
+        const files = await fs.readdir(sourcePath);
+        const scenarioTypes = ['block', 'logic', 'global', 'unknown'];
+        let hasTypeSubdirectories = false;
+        
+        // Check if this directory has type subdirectories
         for (const file of files) {
           const filePath = resolve(sourcePath, file);
-          try {
-            const fileStat = await fs.stat(filePath);
-            if (fileStat.isDirectory() && scenarioTypes.includes(file.toLowerCase())) {
-              const typeFiles = await fs.readdir(filePath);
-              for (const typeFile of typeFiles) {
-                if (typeFile.endsWith('.json')) {
-                  filesToProcess.push(resolve(filePath, typeFile));
-                }
-              }
-            }
-          } catch (error) {
-            console.warn(chalk.yellow(`⚠ Could not access ${file}:`, error));
+          const fileStat = await fs.stat(filePath);
+          if (fileStat.isDirectory() && scenarioTypes.includes(file.toLowerCase())) {
+            hasTypeSubdirectories = true;
+            break;
           }
         }
-      } else {
-        // Legacy structure: process .json files directly
-        console.log(chalk.blue('Processing flat scenario directory structure'));
-        for (const file of files) {
-          if (file.endsWith('.json')) {
-            filesToProcess.push(resolve(sourcePath, file));
+        
+        if (hasTypeSubdirectories) {
+          // New structure: process scenario directories in type subdirectories
+          console.log(chalk.blue('Processing type-based scenario directory structure'));
+          for (const file of files) {
+            const filePath = resolve(sourcePath, file);
+            try {
+              const fileStat = await fs.stat(filePath);
+              if (fileStat.isDirectory() && scenarioTypes.includes(file.toLowerCase())) {
+                const typeFiles = await fs.readdir(filePath);
+                for (const typeFile of typeFiles) {
+                  const scenarioPath = resolve(filePath, typeFile);
+                  const scenarioStat = await fs.stat(scenarioPath);
+                  
+                  if (scenarioStat.isDirectory()) {
+                    // New directory structure with extracted code
+                    if (await hasExtractedCode(scenarioPath)) {
+                      filesToProcess.push(scenarioPath);
+                    }
+                  } else if (typeFile.endsWith('.json')) {
+                    // Legacy JSON file
+                    filesToProcess.push(scenarioPath);
+                  }
+                }
+              }
+            } catch (error) {
+              console.warn(chalk.yellow(`⚠ Could not access ${file}:`, error));
+            }
+          }
+        } else {
+          // Legacy structure: process .json files directly
+          console.log(chalk.blue('Processing flat scenario directory structure'));
+          for (const file of files) {
+            if (file.endsWith('.json')) {
+              filesToProcess.push(resolve(sourcePath, file));
+            }
           }
         }
       }
       
       if (filesToProcess.length === 0) {
-        console.log(chalk.yellow('No .json files found in directory'));
+        console.log(chalk.yellow('No scenario files or directories found to process'));
         return;
       }
       
-      console.log(chalk.blue(`Found ${filesToProcess.length} scenario files to process\n`));
+      console.log(chalk.blue(`Found ${filesToProcess.length} scenarios to process\n`));
     } else if (stat.isFile()) {
-      // Process single file
+      // Process single JSON file
       if (!sourcePath.endsWith('.json')) {
         throw new Error('Only .json files are supported');
       }
@@ -183,34 +213,49 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
     let errorCount = 0;
 
     for (const filePath of filesToProcess) {
-      const filename = filePath.split('/').pop() || '';
-      const scenarioIndex = filename.replace('.json', '');
-      
-      console.log(chalk.cyan(`Processing ${filename}...`));
+      const pathStat = await fs.stat(filePath);
+      let localData: ScenarioData;
+      let scenarioIndex: string;
+      let displayName: string = filePath.split('/').pop() || 'unknown';
       
       try {
-        // Read local file
-        const localContent = await fs.readFile(filePath, 'utf8');
-        let localData;
-        
-        try {
-          localData = JSON.parse(localContent);
-        } catch (parseError) {
-          console.error(chalk.red(`✗ Invalid JSON in ${filename}`));
-          errorCount++;
-          break; // Stop on first error as requested
+        if (pathStat.isDirectory()) {
+          // Directory with extracted code - inject code back to JSON
+          scenarioIndex = displayName;
+          console.log(chalk.cyan(`Processing extracted scenario directory ${displayName}...`));
+          
+          try {
+            localData = await injectScenarioCode(filePath);
+          } catch (injectError) {
+            console.error(chalk.red(`✗ Failed to inject code for scenario ${displayName}:`), injectError);
+            errorCount++;
+            break;
+          }
+        } else {
+          // Legacy JSON file
+          scenarioIndex = displayName.replace('.json', '');
+          console.log(chalk.cyan(`Processing JSON file ${displayName}...`));
+          
+          const localContent = await fs.readFile(filePath, 'utf8');
+          try {
+            localData = JSON.parse(localContent);
+          } catch (parseError) {
+            console.error(chalk.red(`✗ Invalid JSON in ${displayName}`));
+            errorCount++;
+            break; // Stop on first error as requested
+          }
         }
         
         // Validate scenario data
         if (!await validateScenarioData(localData)) {
-          console.error(chalk.red(`✗ Invalid scenario data in ${filename}`));
+          console.error(chalk.red(`✗ Invalid scenario data in ${displayName}`));
           errorCount++;
           break;
         }
         
-        // Ensure the index matches the filename
+        // Ensure the index matches the expected value
         if (localData.index !== scenarioIndex) {
-          console.error(chalk.red(`✗ Scenario index mismatch in ${filename}: expected ${scenarioIndex}, got ${localData.index}`));
+          console.error(chalk.red(`✗ Scenario index mismatch in ${displayName}: expected ${scenarioIndex}, got ${localData.index}`));
           errorCount++;
           break;
         }
@@ -367,7 +412,7 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
         updatedCount++;
         
       } catch (error: any) {
-        console.error(chalk.red(`✗ Failed to process ${filename}:`), error.message);
+        console.error(chalk.red(`✗ Failed to process ${displayName}:`), error.message);
         errorCount++;
         break;
       }
@@ -428,28 +473,29 @@ export async function pullCommand(scenario?: string, destination?: string, optio
         process.exit(1);
       }
 
-      const filename = `${scenario}.json`;
-      const filePath = resolve(typeDir, filename);
+      // Create scenario directory structure: scenarios/{type}/{index}/
+      const scenarioDir = resolve(typeDir, scenario);
+      const scenarioJsonPath = resolve(scenarioDir, 'scenario.json');
       
-      // Check if file exists and handle conflicts
+      // Check if scenario directory exists and handle conflicts
       let existingData = null;
       let shouldOverwrite = options.force;
       
       try {
-        await fs.access(filePath);
-        // File exists, read current content for comparison
-        const existingContent = await fs.readFile(filePath, 'utf8');
+        await fs.access(scenarioJsonPath);
+        // Scenario exists, read current content for comparison
+        const existingContent = await fs.readFile(scenarioJsonPath, 'utf8');
         try {
           existingData = JSON.parse(existingContent);
         } catch {
           // Invalid JSON in existing file, we'll overwrite
           if (!shouldOverwrite) {
-            console.log(chalk.yellow(`⚠ Existing file ${filename} contains invalid JSON`));
-            shouldOverwrite = await askForConfirmation(`Overwrite invalid file ${filename}?`);
+            console.log(chalk.yellow(`⚠ Existing scenario ${scenario} contains invalid JSON`));
+            shouldOverwrite = await askForConfirmation(`Overwrite invalid scenario ${scenario}?`);
           }
         }
       } catch {
-        // File doesn't exist, we should create it
+        // Scenario doesn't exist, we should create it
         shouldOverwrite = true;
       }
       
@@ -486,7 +532,10 @@ export async function pullCommand(scenario?: string, destination?: string, optio
           console.log(changes.join('\n'));
         }
         
-        shouldOverwrite = await askForConfirmation(`Update local file ${filename}?`);
+        shouldOverwrite = await askForConfirmation(`Update local scenario ${scenario}?`);
+        
+        // Restart spinner
+        spinner.start(`Saving scenario ${scenario}...`);
       }
       
       if (!shouldOverwrite) {
@@ -494,11 +543,20 @@ export async function pullCommand(scenario?: string, destination?: string, optio
         return;
       }
 
-      // Create JSON file with raw scenario data
-      const jsonContent = JSON.stringify(response.data, null, 2);
-      
-      await fs.writeFile(filePath, jsonContent);
-      spinner.succeed(`✓ Scenario ${scenario} saved to ${filePath}`);
+      // Extract code to separate files
+      try {
+        await extractScenarioCode(response.data as ScenarioData, scenarioDir);
+        spinner.succeed(`✓ Scenario ${scenario} saved and code extracted to ${scenarioDir}`);
+      } catch (error: any) {
+        spinner.fail(`Failed to extract code for scenario ${scenario}`);
+        console.error(chalk.red('Extract Error:'), error.message);
+        
+        // Fallback: save as original JSON file
+        console.log(chalk.yellow('Falling back to original JSON format...'));
+        await fs.mkdir(scenarioDir, { recursive: true });
+        await fs.writeFile(scenarioJsonPath, JSON.stringify(response.data, null, 2));
+        console.log(chalk.yellow(`✓ Scenario ${scenario} saved as JSON backup`));
+      }
       return;
       
     } catch (error: any) {
@@ -595,30 +653,29 @@ export async function pullCommand(scenario?: string, destination?: string, optio
         continue;
       }
 
-      const filename = `${scenario.index}.json`;
-      const filePath = resolve(typeDir, filename);
+      // Create scenario directory structure: scenarios/{type}/{index}/
+      const scenarioDir = resolve(typeDir, scenario.index);
+      const scenarioJsonPath = resolve(scenarioDir, 'scenario.json');
       
-      // Check if file exists and handle conflicts
+      // Check if scenario directory exists and handle conflicts
       let existingData = null;
       let shouldOverwrite = options.force;
-      let fileExists = false;
       
       try {
-        await fs.access(filePath);
-        fileExists = true;
-        // File exists, read current content for comparison
-        const existingContent = await fs.readFile(filePath, 'utf8');
+        await fs.access(scenarioJsonPath);
+        // Scenario exists, read current content for comparison
+        const existingContent = await fs.readFile(scenarioJsonPath, 'utf8');
         try {
           existingData = JSON.parse(existingContent);
         } catch {
           // Invalid JSON in existing file, we'll overwrite
           if (!shouldOverwrite) {
-            console.log(chalk.yellow(`⚠ Existing file ${filename} contains invalid JSON`));
-            shouldOverwrite = await askForConfirmation(`Overwrite invalid file ${filename}?`);
+            console.log(chalk.yellow(`⚠ Existing scenario ${scenario.index} contains invalid JSON`));
+            shouldOverwrite = await askForConfirmation(`Overwrite invalid scenario ${scenario.index}?`);
           }
         }
       } catch {
-        // File doesn't exist, we should create it
+        // Scenario doesn't exist, we should create it
         shouldOverwrite = true;
       }
 
@@ -653,7 +710,7 @@ export async function pullCommand(scenario?: string, destination?: string, optio
           console.log(changes.join('\n'));
         }
         
-        shouldOverwrite = await askForConfirmation(`Update local file ${filename}?`);
+        shouldOverwrite = await askForConfirmation(`Update local scenario ${scenario.index}?`);
       }
       
       if (!shouldOverwrite) {
@@ -662,22 +719,31 @@ export async function pullCommand(scenario?: string, destination?: string, optio
         continue;
       }
 
-      // Create JSON file with raw scenario data
-      const jsonContent = JSON.stringify(fullScenarioResponse.data, null, 2);
-      
+      // Extract code to separate files
       try {
-        await fs.writeFile(filePath, jsonContent);
+        await extractScenarioCode(fullScenarioResponse.data as ScenarioData, scenarioDir);
         createdCount++;
-      } catch (error) {
-        console.error(chalk.red(`✗ Failed to create ${filename}:`), error);
-        skippedCount++;
+        console.log(chalk.green(`✓ Scenario ${scenario.index} extracted to ${scenarioDir}`));
+      } catch (error: any) {
+        console.error(chalk.red(`✗ Failed to extract code for scenario ${scenario.index}:`), error.message);
+        
+        // Fallback: save as original JSON file
+        try {
+          await fs.mkdir(scenarioDir, { recursive: true });
+          await fs.writeFile(scenarioJsonPath, JSON.stringify(fullScenarioResponse.data, null, 2));
+          createdCount++;
+          console.log(chalk.yellow(`✓ Scenario ${scenario.index} saved as JSON backup`));
+        } catch (fallbackError) {
+          console.error(chalk.red(`✗ Failed to save scenario ${scenario.index}:`), fallbackError);
+          skippedCount++;
+        }
       }
     }
 
     // Summary
     console.log();
     if (createdCount > 0) {
-      console.log(chalk.green(`✓ Created ${createdCount} scenario files organized by type in ${scenariosDir}`));
+      console.log(chalk.green(`✓ Extracted ${createdCount} scenarios with code separation organized by type in ${scenariosDir}`));
     }
     if (skippedCount > 0) {
       console.log(chalk.yellow(`⚠ Skipped ${skippedCount} scenarios`));
