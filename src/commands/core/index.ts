@@ -39,7 +39,7 @@ export function loadCoreCommands(program: Command): void {
 
   // Pull command for downloading scripts  
   program
-    .command('pull [destination]')
+    .command('pull [scenario] [destination]')
     .description('Download scenarios/scripts from Spruthub device')
     .option('-p, --profile <profile>', 'use specific profile')
     .option('-f, --force', 'overwrite existing files without confirmation')

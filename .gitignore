@@ -68,3 +68,6 @@ temp/
 # Package files
 *.tgz
 .yarn-integrity
+
+# Spruthub scenarios (downloaded files)
+scenarios/
