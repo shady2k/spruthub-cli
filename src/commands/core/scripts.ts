@@ -63,7 +63,9 @@ async function askForConfirmation(message: string): Promise<boolean> {
 
 export async function pushCommand(source: string, options: CommandOptions = {}): Promise<void> {
   try {
-    console.log(chalk.blue('Push Scripts to Spruthub Device\n'));
+    if (process.env.VERBOSE) {
+      console.log(chalk.blue('Push Scripts to Spruthub Device\n'));
+    }
 
     if (!source) {
       throw new Error('Source file or directory is required');
@@ -87,7 +89,9 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
           // Check if this is a new directory structure with extracted files
           if (await hasExtractedCode(scenarioDir)) {
             sourcePath = scenarioDir;
-            console.log(chalk.gray(`Using scenario directory: ${scenarioDir}`));
+            if (process.env.VERBOSE) {
+              console.log(chalk.gray(`Using scenario directory: ${scenarioDir}`));
+            }
             found = true;
             break;
           }
@@ -100,7 +104,9 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
         try {
           await fs.access(scenarioFile);
           sourcePath = scenarioFile;
-          console.log(chalk.gray(`Using legacy scenario file: ${scenarioFile}`));
+          if (process.env.VERBOSE) {
+            console.log(chalk.gray(`Using legacy scenario file: ${scenarioFile}`));
+          }
           found = true;
           break;
         } catch {
@@ -114,7 +120,9 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
         try {
           await fs.access(scenarioFile);
           sourcePath = scenarioFile;
-          console.log(chalk.gray(`Using scenario file: ${scenarioFile}`));
+          if (process.env.VERBOSE) {
+            console.log(chalk.gray(`Using scenario file: ${scenarioFile}`));
+          }
         } catch {
           // Fall through to original error handling
         }
@@ -135,7 +143,9 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
     if (stat.isDirectory()) {
       // Check if this is a single scenario directory with extracted code
       if (await hasExtractedCode(sourcePath)) {
-        console.log(chalk.blue('Processing single extracted scenario directory'));
+        if (process.env.VERBOSE) {
+          console.log(chalk.blue('Processing single extracted scenario directory'));
+        }
         filesToProcess.push(sourcePath);
       } else {
         // Process all scenarios in directory
@@ -155,7 +165,9 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
         
         if (hasTypeSubdirectories) {
           // New structure: process scenario directories in type subdirectories
-          console.log(chalk.blue('Processing type-based scenario directory structure'));
+          if (process.env.VERBOSE) {
+            console.log(chalk.blue('Processing type-based scenario directory structure'));
+          }
           for (const file of files) {
             const filePath = resolve(sourcePath, file);
             try {
@@ -183,7 +195,9 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
           }
         } else {
           // Legacy structure: process .json files directly
-          console.log(chalk.blue('Processing flat scenario directory structure'));
+          if (process.env.VERBOSE) {
+            console.log(chalk.blue('Processing flat scenario directory structure'));
+          }
           for (const file of files) {
             if (file.endsWith('.json')) {
               filesToProcess.push(resolve(sourcePath, file));
@@ -197,7 +211,9 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
         return;
       }
       
-      console.log(chalk.blue(`Found ${filesToProcess.length} scenarios to process\n`));
+      if (process.env.VERBOSE) {
+        console.log(chalk.blue(`Found ${filesToProcess.length} scenarios to process\n`));
+      }
     } else if (stat.isFile()) {
       // Process single JSON file
       if (!sourcePath.endsWith('.json')) {
@@ -222,7 +238,9 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
         if (pathStat.isDirectory()) {
           // Directory with extracted code - inject code back to JSON
           scenarioIndex = displayName;
-          console.log(chalk.cyan(`Processing extracted scenario directory ${displayName}...`));
+          if (process.env.VERBOSE) {
+            console.log(chalk.cyan(`Processing extracted scenario directory ${displayName}...`));
+          }
           
           try {
             localData = await injectScenarioCode(filePath);
@@ -234,7 +252,9 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
         } else {
           // Legacy JSON file
           scenarioIndex = displayName.replace('.json', '');
-          console.log(chalk.cyan(`Processing JSON file ${displayName}...`));
+          if (process.env.VERBOSE) {
+            console.log(chalk.cyan(`Processing JSON file ${displayName}...`));
+          }
           
           const localContent = await fs.readFile(filePath, 'utf8');
           try {
@@ -294,7 +314,10 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
         }
         
         if (areEqual) {
-          console.log(chalk.green(`✓ No changes detected for scenario ${scenarioIndex}`));
+          // Only show individual "no changes" messages in verbose mode
+          if (process.env.VERBOSE) {
+            console.log(chalk.green(`✓ No changes detected for scenario ${scenarioIndex}`));
+          }
           skippedCount++;
           continue;
         }
@@ -423,6 +446,14 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
     if (updatedCount > 0) {
       console.log(chalk.green(`✓ Updated ${updatedCount} scenarios`));
     }
+    if (skippedCount > 0) {
+      if (updatedCount === 0 && errorCount === 0) {
+        // All scenarios were up to date
+        console.log(chalk.green(`✓ All ${skippedCount} scenarios are up to date`));
+      } else {
+        console.log(chalk.yellow(`⚠ Skipped ${skippedCount} scenarios`));
+      }
+    }
     if (errorCount > 0) {
       console.log(chalk.red(`✗ ${errorCount} errors occurred`));
       process.exit(1);
@@ -482,16 +513,27 @@ export async function pullCommand(scenario?: string, destination?: string, optio
       let shouldOverwrite = options.force;
       
       try {
-        await fs.access(backupJsonPath);
-        // Scenario exists, read current content for comparison
-        const existingContent = await fs.readFile(backupJsonPath, 'utf8');
-        try {
-          existingData = JSON.parse(existingContent);
-        } catch {
-          // Invalid JSON in existing file, we'll overwrite
-          if (!shouldOverwrite) {
-            console.log(chalk.yellow(`⚠ Existing scenario ${scenario} contains invalid JSON`));
-            shouldOverwrite = await askForConfirmation(`Overwrite invalid scenario ${scenario}?`);
+        // Check if extracted code structure exists
+        if (await hasExtractedCode(scenarioDir)) {
+          // Merge extracted files to get current local data
+          try {
+            existingData = await injectScenarioCode(scenarioDir);
+          } catch (error) {
+            console.log(chalk.yellow(`⚠ Failed to merge extracted code for scenario ${scenario}: ${error}`));
+            shouldOverwrite = true;
+          }
+        } else {
+          // Fall back to backup.json
+          await fs.access(backupJsonPath);
+          const existingContent = await fs.readFile(backupJsonPath, 'utf8');
+          try {
+            existingData = JSON.parse(existingContent);
+          } catch {
+            // Invalid JSON in existing file, we'll overwrite
+            if (!shouldOverwrite) {
+              console.log(chalk.yellow(`⚠ Existing scenario ${scenario} contains invalid JSON`));
+              shouldOverwrite = await askForConfirmation(`Overwrite invalid scenario ${scenario}?`);
+            }
           }
         }
       } catch {
@@ -504,7 +546,7 @@ export async function pullCommand(scenario?: string, destination?: string, optio
         const areEqual = await compareScenarios(existingData, response.data);
         
         if (areEqual) {
-          spinner.succeed(`✓ No changes detected for scenario ${scenario}`);
+          spinner.succeed(`Scenario ${scenario} is up to date`);
           return;
         }
         
@@ -663,16 +705,27 @@ export async function pullCommand(scenario?: string, destination?: string, optio
       let shouldOverwrite = options.force;
       
       try {
-        await fs.access(backupJsonPath);
-        // Scenario exists, read current content for comparison
-        const existingContent = await fs.readFile(backupJsonPath, 'utf8');
-        try {
-          existingData = JSON.parse(existingContent);
-        } catch {
-          // Invalid JSON in existing file, we'll overwrite
-          if (!shouldOverwrite) {
-            console.log(chalk.yellow(`⚠ Existing scenario ${scenario.index} contains invalid JSON`));
-            shouldOverwrite = await askForConfirmation(`Overwrite invalid scenario ${scenario.index}?`);
+        // Check if extracted code structure exists
+        if (await hasExtractedCode(scenarioDir)) {
+          // Merge extracted files to get current local data
+          try {
+            existingData = await injectScenarioCode(scenarioDir);
+          } catch (error) {
+            console.log(chalk.yellow(`⚠ Failed to merge extracted code for scenario ${scenario.index}: ${error}`));
+            shouldOverwrite = true;
+          }
+        } else {
+          // Fall back to backup.json
+          await fs.access(backupJsonPath);
+          const existingContent = await fs.readFile(backupJsonPath, 'utf8');
+          try {
+            existingData = JSON.parse(existingContent);
+          } catch {
+            // Invalid JSON in existing file, we'll overwrite
+            if (!shouldOverwrite) {
+              console.log(chalk.yellow(`⚠ Existing scenario ${scenario.index} contains invalid JSON`));
+              shouldOverwrite = await askForConfirmation(`Overwrite invalid scenario ${scenario.index}?`);
+            }
           }
         }
       } catch {
@@ -685,7 +738,10 @@ export async function pullCommand(scenario?: string, destination?: string, optio
         const areEqual = await compareScenarios(existingData, fullScenarioResponse.data);
         
         if (areEqual) {
-          console.log(chalk.green(`✓ No changes detected for scenario ${scenario.index}`));
+          // Only show individual "no changes" messages in verbose mode
+          if (process.env.VERBOSE) {
+            console.log(chalk.green(`✓ No changes detected for scenario ${scenario.index}`));
+          }
           skippedCount++;
           continue;
         }
@@ -724,7 +780,10 @@ export async function pullCommand(scenario?: string, destination?: string, optio
       try {
         await extractScenarioCode(fullScenarioResponse.data as ScenarioData, scenarioDir);
         createdCount++;
-        console.log(chalk.green(`✓ Scenario ${scenario.index} extracted to ${scenarioDir}`));
+        // Only show individual extraction messages in verbose mode or when there are actual changes
+        if (process.env.VERBOSE) {
+          console.log(chalk.green(`✓ Scenario ${scenario.index} extracted to ${scenarioDir}`));
+        }
       } catch (error: any) {
         console.error(chalk.red(`✗ Failed to extract code for scenario ${scenario.index}:`), error.message);
         
@@ -747,7 +806,12 @@ export async function pullCommand(scenario?: string, destination?: string, optio
       console.log(chalk.green(`✓ Extracted ${createdCount} scenarios with code separation organized by type in ${scenariosDir}`));
     }
     if (skippedCount > 0) {
-      console.log(chalk.yellow(`⚠ Skipped ${skippedCount} scenarios`));
+      if (createdCount === 0) {
+        // All scenarios were up to date
+        console.log(chalk.green(`✓ All ${skippedCount} scenarios are up to date`));
+      } else {
+        console.log(chalk.yellow(`⚠ Skipped ${skippedCount} scenarios`));
+      }
     }
 
   } catch (error: any) {

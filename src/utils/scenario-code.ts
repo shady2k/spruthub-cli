@@ -132,7 +132,9 @@ async function extractBlockScenario(scenarioData: ScenarioData, scenarioDir: str
     await fs.writeFile(codeFilePath, codeFile.code);
   }
 
-  console.log(chalk.green(`✓ Extracted ${codeFiles.length} code blocks from scenario ${scenarioData.index}`));
+  if (process.env.VERBOSE) {
+    console.log(chalk.green(`✓ Extracted ${codeFiles.length} code blocks from scenario ${scenarioData.index}`));
+  }
 }
 
 /**
@@ -150,7 +152,9 @@ async function extractLogicOrGlobalScenario(scenarioData: ScenarioData, scenario
   const codeFilePath = resolve(scenarioDir, 'code.js');
   await fs.writeFile(codeFilePath, scenarioData.data);
 
-  console.log(chalk.green(`✓ Extracted code from ${scenarioData.type.toLowerCase()} scenario ${scenarioData.index}`));
+  if (process.env.VERBOSE) {
+    console.log(chalk.green(`✓ Extracted code from ${scenarioData.type.toLowerCase()} scenario ${scenarioData.index}`));
+  }
 }
 
 /**
@@ -224,7 +228,9 @@ async function injectBlockScenario(metadata: ScenarioData, scenarioDir: string):
     throw new Error('Generated scenario data is not valid JSON');
   }
 
-  console.log(chalk.green(`✓ Injected ${finalTargets.filter(t => t.type === 'code').length} code blocks into scenario ${metadata.index}`));
+  if (process.env.VERBOSE) {
+    console.log(chalk.green(`✓ Injected ${finalTargets.filter(t => t.type === 'code').length} code blocks into scenario ${metadata.index}`));
+  }
   return finalScenario;
 }
 
@@ -240,7 +246,9 @@ async function injectLogicOrGlobalScenario(metadata: ScenarioData, scenarioDir: 
     const finalScenario = { ...metadata };
     finalScenario.data = codeContent;
     
-    console.log(chalk.green(`✓ Injected code into ${metadata.type.toLowerCase()} scenario ${metadata.index}`));
+    if (process.env.VERBOSE) {
+      console.log(chalk.green(`✓ Injected code into ${metadata.type.toLowerCase()} scenario ${metadata.index}`));
+    }
     return finalScenario;
   } catch (error) {
     throw new Error(`Failed to read code file code.js: ${error}`);
