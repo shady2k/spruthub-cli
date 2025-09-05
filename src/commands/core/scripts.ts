@@ -320,9 +320,6 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
     if (updatedCount > 0) {
       console.log(chalk.green(`✓ Updated ${updatedCount} scenarios`));
     }
-    if (skippedCount > 0) {
-      console.log(chalk.yellow(`⚠ Skipped ${skippedCount} scenarios (no changes)`));
-    }
     if (errorCount > 0) {
       console.log(chalk.red(`✗ ${errorCount} errors occurred`));
       process.exit(1);
@@ -365,12 +362,62 @@ export async function pullCommand(scenario?: string, destination?: string, optio
       const filePath = resolve(scenariosDir, filename);
       
       // Check if file exists and handle conflicts
+      let existingData = null;
+      let shouldOverwrite = options.force;
+      
       try {
         await fs.access(filePath);
-        if (!options.force) {
-          spinner.fail(`File ${filename} already exists`);
-          console.error(chalk.yellow('Use --force to overwrite existing files'));
-          process.exit(1);
+        // File exists, read current content for comparison
+        const existingContent = await fs.readFile(filePath, 'utf8');
+        try {
+          existingData = JSON.parse(existingContent);
+        } catch {
+          // Invalid JSON in existing file, we'll overwrite
+          if (!shouldOverwrite) {
+            console.log(chalk.yellow(`⚠ Existing file ${filename} contains invalid JSON`));
+            shouldOverwrite = await askForConfirmation(`Overwrite invalid file ${filename}?`);
+          }
+        }
+        
+        // If we have valid existing data, compare it
+        if (existingData && !shouldOverwrite) {
+          const areEqual = await compareScenarios(existingData, response.data);
+          
+          if (areEqual) {
+            spinner.succeed(`✓ No changes detected for scenario ${scenario}`);
+            return;
+          }
+          
+          // Stop spinner before showing diff and asking for confirmation
+          spinner.stop();
+          
+          // Show diff summary
+          console.log(chalk.yellow(`⚠ Changes detected for scenario ${scenario}:`));
+          
+          const changes = [];
+          if (existingData.name !== response.data.name) {
+            changes.push(`  name: "${existingData.name}" → "${response.data.name}"`);
+          }
+          if (existingData.desc !== response.data.desc) {
+            changes.push(`  desc: "${existingData.desc}" → "${response.data.desc}"`);
+          }
+          if (existingData.active !== response.data.active) {
+            changes.push(`  active: ${existingData.active} → ${response.data.active}`);
+          }
+          if (existingData.data !== response.data.data) {
+            changes.push(`  data: <scenario logic changed>`);
+          }
+          
+          if (changes.length > 0) {
+            console.log(changes.join('\n'));
+          }
+          
+          shouldOverwrite = await askForConfirmation(`Update local file ${filename}?`);
+        }
+        
+        if (!shouldOverwrite) {
+          console.log(chalk.yellow(`⚠ Skipped scenario ${scenario}`));
+          return;
         }
       } catch {
         // File doesn't exist, continue with creation
@@ -453,12 +500,21 @@ export async function pullCommand(scenario?: string, destination?: string, optio
       const filePath = resolve(scenariosDir, filename);
       
       // Check if file exists and handle conflicts
+      let existingData = null;
+      let shouldOverwrite = options.force;
+      
       try {
         await fs.access(filePath);
-        if (!options.force) {
-          console.warn(chalk.yellow(`⚠ Skipping existing file: ${filename} (use --force to overwrite)`));
-          skippedCount++;
-          continue;
+        // File exists, read current content for comparison
+        const existingContent = await fs.readFile(filePath, 'utf8');
+        try {
+          existingData = JSON.parse(existingContent);
+        } catch {
+          // Invalid JSON in existing file, we'll overwrite
+          if (!shouldOverwrite) {
+            console.log(chalk.yellow(`⚠ Existing file ${filename} contains invalid JSON`));
+            shouldOverwrite = await askForConfirmation(`Overwrite invalid file ${filename}?`);
+          }
         }
       } catch {
         // File doesn't exist, continue with creation
@@ -474,10 +530,50 @@ export async function pullCommand(scenario?: string, destination?: string, optio
           continue;
         }
 
-        // Create .js file with raw scenario data (no export default)
-        const jsContent = JSON.stringify(fullScenarioResponse.data, null, 2);
+        // If we have existing data and not forcing, compare it
+        if (existingData && !shouldOverwrite) {
+          const areEqual = await compareScenarios(existingData, fullScenarioResponse.data);
+          
+          if (areEqual) {
+            console.log(chalk.green(`✓ No changes detected for scenario ${scenario.index}`));
+            skippedCount++;
+            continue;
+          }
+          
+          // Show diff summary
+          console.log(chalk.yellow(`⚠ Changes detected for scenario ${scenario.index}:`));
+          
+          const changes = [];
+          if (existingData.name !== fullScenarioResponse.data.name) {
+            changes.push(`  name: "${existingData.name}" → "${fullScenarioResponse.data.name}"`);
+          }
+          if (existingData.desc !== fullScenarioResponse.data.desc) {
+            changes.push(`  desc: "${existingData.desc}" → "${fullScenarioResponse.data.desc}"`);
+          }
+          if (existingData.active !== fullScenarioResponse.data.active) {
+            changes.push(`  active: ${existingData.active} → ${fullScenarioResponse.data.active}`);
+          }
+          if (existingData.data !== fullScenarioResponse.data.data) {
+            changes.push(`  data: <scenario logic changed>`);
+          }
+          
+          if (changes.length > 0) {
+            console.log(changes.join('\n'));
+          }
+          
+          shouldOverwrite = await askForConfirmation(`Update local file ${filename}?`);
+        }
         
-        await fs.writeFile(filePath, jsContent);
+        if (!shouldOverwrite) {
+          console.log(chalk.yellow(`⚠ Skipped scenario ${scenario.index}`));
+          skippedCount++;
+          continue;
+        }
+
+        // Create JSON file with raw scenario data
+        const jsonContent = JSON.stringify(fullScenarioResponse.data, null, 2);
+        
+        await fs.writeFile(filePath, jsonContent);
         createdCount++;
       } catch (error) {
         console.error(chalk.red(`✗ Failed to create ${filename}:`), error);
