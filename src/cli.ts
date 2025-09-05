@@ -9,7 +9,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Load package.json dynamically to avoid import assertion issues
-const packagePath = resolve(__dirname, '..', '..', 'package.json');
+// When running with tsx, __dirname points to src/, so we need to go up one level to find package.json
+const packagePath = resolve(__dirname, '..', 'package.json');
 const packageInfo = JSON.parse(readFileSync(packagePath, 'utf8'));
 
 

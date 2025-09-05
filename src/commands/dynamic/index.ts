@@ -236,38 +236,16 @@ function addSchemaOptions(cmd: Command, properties: Record<string, any>, prefix 
 }
 
 function getCommandWithPositionalArgs(commandName: string, methodSchema: MethodSchema): string {
-  // Check if method expects an ID parameter (common pattern)
-  if (hasIdParameter(methodSchema)) {
-    return `${commandName} <id>`;
+  const positionalParams = getPositionalParameters(methodSchema);
+  
+  if (positionalParams.length > 0) {
+    const argNames = positionalParams.map(param => `<${param.name}>`).join(' ');
+    return `${commandName} ${argNames}`;
   }
   
   return commandName;
 }
 
-function hasIdParameter(methodSchema: MethodSchema): boolean {
-  if (!methodSchema.params || !methodSchema.params.properties) {
-    return false;
-  }
-  
-  const paramsSchema = methodSchema.params as any;
-  
-  // Look for nested id parameter in schema structure
-  for (const topLevelKey of Object.keys(paramsSchema.properties)) {
-    const topLevelProp = paramsSchema.properties[topLevelKey];
-    
-    if (topLevelProp && topLevelProp.properties) {
-      for (const secondLevelKey of Object.keys(topLevelProp.properties)) {
-        const secondLevelProp = topLevelProp.properties[secondLevelKey];
-        
-        if (secondLevelProp && secondLevelProp.properties && secondLevelProp.properties.id) {
-          return true;
-        }
-      }
-    }
-  }
-  
-  return false;
-}
 
 async function buildParams(options: CommandOptions, methodSchema: MethodSchema, positionalArgs: any[] = []): Promise<any> {
   let params: any = {};
@@ -300,12 +278,9 @@ async function buildParams(options: CommandOptions, methodSchema: MethodSchema, 
     params = { ...params, ...schemaParams };
   }
 
-  // 4. Handle positional arguments (like room ID)
-  if (positionalArgs.length > 0 && hasIdParameter(methodSchema)) {
-    const idValue = parseInt(positionalArgs[0]);
-    if (!isNaN(idValue)) {
-      params = mergeIdParameter(params, methodSchema, idValue);
-    }
+  // 4. Handle positional arguments
+  if (positionalArgs.length > 0) {
+    params = mergePositionalParameters(params, methodSchema, positionalArgs);
   }
 
   // 5. If no params provided but schema requires them, build default structure
@@ -346,34 +321,82 @@ function buildDefaultParams(methodSchema: MethodSchema): any {
   return params;
 }
 
-function mergeIdParameter(params: any, methodSchema: MethodSchema, idValue: number): any {
-  const paramsSchema = methodSchema.params as any;
+function getPositionalParameters(methodSchema: MethodSchema): Array<{name: string, path: string[], type: string, required: boolean}> {
+  const positionalParams: Array<{name: string, path: string[], type: string, required: boolean}> = [];
   
-  if (!paramsSchema || !paramsSchema.properties) {
-    return params;
+  if (!methodSchema.params || !methodSchema.params.properties) {
+    return positionalParams;
   }
   
-  // Find the nested structure where the ID should go
-  for (const topLevelKey of Object.keys(paramsSchema.properties)) {
-    const topLevelProp = paramsSchema.properties[topLevelKey];
+  const paramsSchema = methodSchema.params as any;
+  
+  // Recursively search for required parameters that could be positional
+  function searchParams(obj: any, path: string[] = [], requiredFields: string[] = []) {
+    if (!obj || !obj.properties) return;
     
-    if (topLevelProp && topLevelProp.properties) {
-      for (const secondLevelKey of Object.keys(topLevelProp.properties)) {
-        const secondLevelProp = topLevelProp.properties[secondLevelKey];
-        
-        if (secondLevelProp && secondLevelProp.properties && secondLevelProp.properties.id) {
-          // Build nested structure with ID
-          if (!params[topLevelKey]) {
-            params[topLevelKey] = {};
-          }
-          if (!params[topLevelKey][secondLevelKey]) {
-            params[topLevelKey][secondLevelKey] = {};
-          }
-          params[topLevelKey][secondLevelKey].id = idValue;
-          return params;
-        }
+    const required = obj.required || requiredFields;
+    
+    for (const [key, prop] of Object.entries(obj.properties) as [string, any][]) {
+      const currentPath = [...path, key];
+      const isRequired = required.includes(key);
+      
+      if (prop.properties) {
+        // Recurse into nested objects
+        searchParams(prop, currentPath, prop.required);
+      } else if (isRequired && (prop.type === 'string' || prop.type === 'number' || prop.type === 'integer')) {
+        // This is a potential positional parameter
+        positionalParams.push({
+          name: key,
+          path: currentPath,
+          type: prop.type,
+          required: isRequired
+        });
       }
     }
+  }
+  
+  searchParams(paramsSchema);
+  
+  // Sort by path depth and name to ensure consistent ordering
+  return positionalParams.sort((a, b) => {
+    if (a.path.length !== b.path.length) {
+      return a.path.length - b.path.length;
+    }
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function mergePositionalParameters(params: any, methodSchema: MethodSchema, positionalArgs: any[]): any {
+  const positionalParams = getPositionalParameters(methodSchema);
+  
+  for (let i = 0; i < Math.min(positionalArgs.length, positionalParams.length); i++) {
+    const param = positionalParams[i];
+    const value = positionalArgs[i];
+    
+    // Convert value to appropriate type
+    let convertedValue = value;
+    if (param.type === 'number' || param.type === 'integer') {
+      convertedValue = parseInt(value);
+      if (isNaN(convertedValue)) {
+        throw new Error(`Invalid ${param.type} value for parameter '${param.name}': ${value}`);
+      }
+    } else if (param.type === 'string') {
+      convertedValue = value.toString();
+    }
+    
+    // Build nested structure based on path
+    let current = params;
+    for (let j = 0; j < param.path.length - 1; j++) {
+      const pathSegment = param.path[j];
+      if (!current[pathSegment]) {
+        current[pathSegment] = {};
+      }
+      current = current[pathSegment];
+    }
+    
+    // Set the final value
+    const finalKey = param.path[param.path.length - 1];
+    current[finalKey] = convertedValue;
   }
   
   return params;

@@ -113,23 +113,15 @@ export class OutputFormatter {
   private formatApiResponseTable(data: ApiResponse, options: FormatOptions = {}): string {
     // For API responses, focus on the actual data rather than the wrapper
     if (data.isSuccess && data.data) {
-      // Check if data has a common collection pattern (like rooms.rooms, accessories.accessories)
-      if (data.data.rooms && Array.isArray(data.data.rooms)) {
-        return this.formatArrayTable(data.data.rooms, options);
-      }
-      if (data.data.accessories && Array.isArray(data.data.accessories)) {
-        return this.formatArrayTable(data.data.accessories, options);
-      }
-      if (data.data.scenarios && Array.isArray(data.data.scenarios)) {
-        return this.formatArrayTable(data.data.scenarios, options);
-      }
-      if (data.data.hubs && Array.isArray(data.data.hubs)) {
-        return this.formatArrayTable(data.data.hubs, options);
-      }
-      
       // If data itself is an array
       if (Array.isArray(data.data)) {
         return this.formatArrayTable(data.data, options);
+      }
+      
+      // Check for collection patterns - single key with array value
+      const collectionArray = this.detectCollectionPattern(data.data);
+      if (collectionArray) {
+        return this.formatArrayTable(collectionArray, options);
       }
       
       // For simple objects, show them directly
@@ -170,6 +162,26 @@ export class OutputFormatter {
     return table.toString();
   }
 
+  private detectCollectionPattern(data: any): any[] | null {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return null;
+    }
+    
+    const keys = Object.keys(data);
+    
+    // Collection responses typically have only one key with an array value
+    if (keys.length === 1) {
+      const key = keys[0];
+      const value = data[key];
+      
+      if (Array.isArray(value)) {
+        return value;
+      }
+    }
+    
+    return null;
+  }
+
   private formatValue(value: any): string {
     if (value === null || value === undefined) {
       return chalk.gray('null');
@@ -188,10 +200,55 @@ export class OutputFormatter {
     }
 
     if (Array.isArray(value)) {
-      return `[${value.length} items]`;
+      // Show actual array values instead of just count
+      if (value.length === 0) {
+        return '[]';
+      }
+      
+      // Format array as JSON but with smart truncation
+      const formatted = JSON.stringify(value, null, 0);
+      
+      // If array is short, show it completely
+      if (formatted.length <= 100) {
+        return formatted;
+      }
+      
+      // For longer arrays, show first few items and truncate
+      if (value.length <= 3) {
+        return formatted.substring(0, 97) + '...';
+      }
+      
+      // Show first 2 items and indicate more
+      const shortArray = value.slice(0, 2);
+      const shortFormatted = JSON.stringify(shortArray, null, 0);
+      return shortFormatted.replace(']', `, ...+${value.length - 2}]`);
     }
 
-    return String(value);
+    // Handle string values - check if it's JSON and format accordingly
+    const str = String(value);
+    
+    // Try to parse as JSON and format it
+    if (str.startsWith('{') || str.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(str);
+        const formatted = JSON.stringify(parsed, null, 2);
+        
+        // If formatted JSON is still too long, truncate it
+        if (formatted.length > 200) {
+          const truncated = formatted.substring(0, 197) + '...';
+          return truncated;
+        }
+        return formatted;
+      } catch {
+        // Not valid JSON, treat as regular string
+      }
+    }
+    
+    // Truncate very long non-JSON strings
+    if (str.length > 100) {
+      return str.substring(0, 97) + '...';
+    }
+    return str;
   }
 
   private formatComplexObject(obj: any): string {
@@ -371,8 +428,7 @@ export class OutputFormatter {
     }
 
     const shrinkFactor = totalWidth / totalContentWidth;
-    const columnWidths = contentWidths.map((width, index) => {
-      const colName = columns[index];
+    const columnWidths = contentWidths.map((width) => {
       const shrinkedWidth = Math.floor(width * shrinkFactor);
       
       // Ensure minimum width to prevent excessive truncation
