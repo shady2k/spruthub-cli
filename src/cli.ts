@@ -1,7 +1,16 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { loadCommands } from './commands/index.js';
-import packageInfo from '../package.json' assert { type: 'json' };
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Load package.json dynamically to avoid import assertion issues
+const packagePath = resolve(__dirname, '..', '..', 'package.json');
+const packageInfo = JSON.parse(readFileSync(packagePath, 'utf8'));
 
 
 export const program = new Command();
