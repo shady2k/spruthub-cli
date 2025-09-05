@@ -19,12 +19,23 @@ class SprutHubClientWrapper {
     try {
       const credentials = await configManager.getCredentials(profileName);
       
+      // Create a quiet logger for connection phase to avoid spinner interference
+      const quietLogger = {
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        debug: () => {},
+        child: () => quietLogger,
+        fatal: () => {},
+        trace: () => {}
+      };
+      
       this.client = new Sprut({
         wsUrl: credentials.wsUrl,
         sprutEmail: credentials.email,
         sprutPassword: credentials.password,
         serial: credentials.serial,
-        logger: logger,
+        logger: process.env.VERBOSE ? logger : quietLogger,
         defaultTimeout: 10000
       });
 
@@ -75,12 +86,12 @@ class SprutHubClientWrapper {
     const client = await this.getClient(profileName);
     
     try {
-      // Use the client's method calling system which handles enhanced methods
-      if (typeof client[methodName] === 'function') {
-        return await client[methodName](params);
-      } else {
-        return await client.execute(methodName, params);
-      }
+      // Use spruthub-client's built-in callMethod which handles:
+      // - Schema validation
+      // - Parameter building from schema
+      // - Enhanced methods
+      // - Authentication
+      return await client.callMethod(methodName, params);
     } catch (error) {
       throw error;
     }

@@ -159,6 +159,9 @@ function addMethodCommand(parentCmd: Command, commandName: string, methodName: s
         console.error(error.stack);
       }
       process.exit(1);
+    } finally {
+      // Clean up connection
+      await client.disconnect();
     }
   });
 }
@@ -209,6 +212,41 @@ async function buildParams(options: CommandOptions, methodSchema: MethodSchema):
   if (methodSchema.params && methodSchema.params.properties) {
     const schemaParams = buildSchemaParams(options, methodSchema.params.properties);
     params = { ...params, ...schemaParams };
+  }
+
+  // 4. If no params provided but schema requires them, build default structure
+  if (Object.keys(params).length === 0 && methodSchema.params && (methodSchema.params as any).required) {
+    params = buildDefaultParams(methodSchema);
+  }
+
+  return params;
+}
+
+function buildDefaultParams(methodSchema: MethodSchema): any {
+  const params: any = {};
+  
+  if (!methodSchema.params || !methodSchema.params.properties) {
+    return params;
+  }
+
+  // Build required nested structure based on schema
+  const paramsSchema = methodSchema.params as any;
+  for (const requiredField of paramsSchema.required || []) {
+    const fieldSchema = paramsSchema.properties[requiredField];
+    
+    if (fieldSchema && fieldSchema.type === 'object' && fieldSchema.properties) {
+      params[requiredField] = {};
+      
+      // Handle nested required fields
+      if (fieldSchema.required) {
+        for (const nestedField of fieldSchema.required) {
+          const nestedSchema = fieldSchema.properties[nestedField];
+          if (nestedSchema && nestedSchema.type === 'object') {
+            params[requiredField][nestedField] = {};
+          }
+        }
+      }
+    }
   }
 
   return params;

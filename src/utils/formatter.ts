@@ -72,7 +72,9 @@ export class OutputFormatter {
     const columns = options.columns || this.inferColumns(data);
     const table = new Table({
       head: columns.map(col => chalk.cyan(col)),
-      style: { border: [], head: [] }
+      style: { border: [], head: [] },
+      colWidths: columns.length > 2 ? [12, 80, 25] : undefined, // Limit column widths for readability
+      wordWrap: true
     });
 
     data.forEach(item => {
@@ -146,7 +148,37 @@ export class OutputFormatter {
       return JSON.stringify(value, null, 2);
     }
     
-    return String(value);
+    const text = String(value);
+    
+    // Word wrap long text (especially descriptions)
+    if (text.length > 80) {
+      return this.wordWrap(text, 80);
+    }
+    
+    return text;
+  }
+
+  private wordWrap(text: string, width: number): string {
+    const words = text.split(' ');
+    const lines: string[] = [];
+    let currentLine = '';
+
+    for (const word of words) {
+      if (currentLine.length + word.length + 1 <= width) {
+        currentLine = currentLine ? `${currentLine} ${word}` : word;
+      } else {
+        if (currentLine) {
+          lines.push(currentLine);
+        }
+        currentLine = word;
+      }
+    }
+    
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+
+    return lines.join('\n');
   }
 
   private inferColumns(data: any[]): string[] {

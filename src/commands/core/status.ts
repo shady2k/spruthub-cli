@@ -42,6 +42,9 @@ export async function statusCommand(options: CommandOptions = {}): Promise<void>
       console.log(chalk.gray('Run "spruthub-cli login" to update credentials.'));
     }
 
+    // Clean up connection
+    await client.disconnect();
+
   } catch (error: any) {
     console.error(chalk.red('Status check failed:'), error.message);
     process.exit(1);
