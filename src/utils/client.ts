@@ -11,13 +11,23 @@ class SprutHubClientWrapper {
 
   async getClient(profileName?: string): Promise<any> {
     if (this.client && this.isConnected) {
+      if (process.env.VERBOSE) {
+        console.log(chalk.cyan(`[DEBUG] Reusing existing connection`));
+      }
       return this.client;
     }
 
+    const isVerbose = process.env.VERBOSE;
     const spinner = ora('Connecting to Spruthub device...').start();
     
     try {
+      const credStart = performance.now();
       const credentials = await configManager.getCredentials(profileName);
+      
+      if (isVerbose) {
+        const credTime = Math.round((performance.now() - credStart) * 100) / 100;
+        spinner.text = `Loading credentials (${credTime}ms)...`;
+      }
       
       // Create a quiet logger for connection phase to avoid spinner interference
       const quietLogger = {
@@ -30,6 +40,12 @@ class SprutHubClientWrapper {
         trace: () => {}
       };
       
+      const clientStart = performance.now();
+      
+      if (isVerbose) {
+        spinner.text = `Creating Sprut client...`;
+      }
+      
       this.client = new Sprut({
         wsUrl: credentials.wsUrl,
         sprutEmail: credentials.email,
@@ -38,12 +54,24 @@ class SprutHubClientWrapper {
         logger: process.env.VERBOSE ? logger : quietLogger,
         defaultTimeout: 10000
       });
+      
+      if (isVerbose) {
+        const clientTime = Math.round((performance.now() - clientStart) * 100) / 100;
+        spinner.text = `Client created (${clientTime}ms), waiting for connection...`;
+      }
 
       // Wait for connection
+      const connStart = performance.now();
       await this.client.connected();
       this.isConnected = true;
       
-      spinner.succeed('Connected to Spruthub device');
+      if (isVerbose) {
+        const connTime = Math.round((performance.now() - connStart) * 100) / 100;
+        spinner.succeed(`Connected to Spruthub device (${connTime}ms)`);
+      } else {
+        spinner.succeed('Connected to Spruthub device');
+      }
+      
       return this.client;
       
     } catch (error: any) {
@@ -83,7 +111,22 @@ class SprutHubClientWrapper {
   }
 
   async callMethod(methodName: string, params: any = {}, profileName?: string): Promise<ApiResponse> {
+    const isVerbose = process.env.VERBOSE;
+    const connectionStart = performance.now();
+    
+    if (isVerbose) {
+      console.log(chalk.cyan(`[DEBUG] Getting client connection...`));
+    }
+    
     const client = await this.getClient(profileName);
+    
+    if (isVerbose) {
+      const connectionTime = Math.round((performance.now() - connectionStart) * 100) / 100;
+      console.log(chalk.cyan(`[DEBUG] Connection ready in ${connectionTime}ms`));
+      console.log(chalk.cyan(`[DEBUG] Calling ${methodName} with params:`), JSON.stringify(params, null, 2));
+    }
+    
+    const apiStart = performance.now();
     
     try {
       // Use spruthub-client's built-in callMethod which handles:
@@ -91,8 +134,20 @@ class SprutHubClientWrapper {
       // - Parameter building from schema
       // - Enhanced methods
       // - Authentication
-      return await client.callMethod(methodName, params);
+      const result = await client.callMethod(methodName, params);
+      
+      if (isVerbose) {
+        const apiTime = Math.round((performance.now() - apiStart) * 100) / 100;
+        console.log(chalk.cyan(`[DEBUG] API call completed in ${apiTime}ms`));
+        console.log(chalk.cyan(`[DEBUG] Result success: ${result.isSuccess}, data length: ${JSON.stringify(result.data).length} chars`));
+      }
+      
+      return result;
     } catch (error) {
+      if (isVerbose) {
+        const apiTime = Math.round((performance.now() - apiStart) * 100) / 100;
+        console.log(chalk.red(`[DEBUG] API call failed in ${apiTime}ms:`, error));
+      }
       throw error;
     }
   }

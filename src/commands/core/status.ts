@@ -5,6 +5,14 @@ import { OutputFormatter } from '../../utils/formatter.js';
 import type { CommandOptions } from '../../types/index.js';
 
 export async function statusCommand(options: CommandOptions = {}): Promise<void> {
+  const startTime = performance.now();
+  const isVerbose = process.env.VERBOSE;
+  
+  if (isVerbose) {
+    console.time('status-total');
+    console.time('connection-test');
+  }
+  
   try {
     const formatter = new OutputFormatter();
     const profiles = await configManager.listProfiles();
@@ -27,6 +35,10 @@ export async function statusCommand(options: CommandOptions = {}): Promise<void>
     // Test connection
     const connectionTest = await client.testConnection(targetProfile);
     
+    if (isVerbose) {
+      console.timeEnd('connection-test');
+    }
+    
     const statusData = {
       ...connectionTest,
       profile: targetProfile
@@ -45,8 +57,24 @@ export async function statusCommand(options: CommandOptions = {}): Promise<void>
     // Clean up connection
     await client.disconnect();
 
+    const endTime = performance.now();
+    const responseTime = Math.round((endTime - startTime) * 100) / 100;
+    console.log(chalk.gray(`\n⏱️  Response time: ${responseTime}ms`));
+
+    if (isVerbose) {
+      console.timeEnd('status-total');
+    }
+
   } catch (error: any) {
+    const endTime = performance.now();
+    const responseTime = Math.round((endTime - startTime) * 100) / 100;
+    
     console.error(chalk.red('Status check failed:'), error.message);
+    console.log(chalk.gray(`⏱️  Failed after: ${responseTime}ms`));
+    
+    if (isVerbose) {
+      console.timeEnd('status-total');
+    }
     process.exit(1);
   }
 }

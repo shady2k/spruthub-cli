@@ -130,8 +130,11 @@ function addCategoryCommands(program: Command, category: string): void {
 }
 
 function addMethodCommand(parentCmd: Command, commandName: string, methodName: string, methodSchema: MethodSchema): void {
+  // Check if method needs positional arguments (like room ID)
+  const commandWithArgs = getCommandWithPositionalArgs(commandName, methodSchema);
+  
   const cmd = parentCmd
-    .command(commandName)
+    .command(commandWithArgs)
     .description(methodSchema.description || `Execute ${methodName}`);
 
   // Add common options
@@ -145,18 +148,67 @@ function addMethodCommand(parentCmd: Command, commandName: string, methodName: s
     addSchemaOptions(cmd, methodSchema.params.properties);
   }
 
-  cmd.action(async (options: CommandOptions) => {
+  cmd.action(async (...args: any[]) => {
+    const startTime = performance.now();
+    const isVerbose = process.env.VERBOSE;
+    
+    if (isVerbose) {
+      console.time(`${methodName}-total`);
+      console.time(`${methodName}-param-building`);
+    }
+    
     try {
-      const params = await buildParams(options, methodSchema);
+      // Commander passes positional arguments first, then options object last
+      const options = args[args.length - 1] as CommandOptions;
+      const positionalArgs = args.slice(0, -1);
+      
+      if (isVerbose) {
+        console.log(chalk.cyan(`[DEBUG] Executing ${methodName} with profile: ${options.profile || 'default'}`));
+        console.log(chalk.cyan(`[DEBUG] Positional args:`, positionalArgs));
+      }
+      
+      const params = await buildParams(options, methodSchema, positionalArgs);
+      
+      if (isVerbose) {
+        console.timeEnd(`${methodName}-param-building`);
+        console.log(chalk.cyan(`[DEBUG] Built parameters:`, JSON.stringify(params, null, 2)));
+        console.time(`${methodName}-api-call`);
+      }
+      
       const result = await client.callMethod(methodName, params, options.profile);
+      
+      if (isVerbose) {
+        console.timeEnd(`${methodName}-api-call`);
+        console.time(`${methodName}-formatting`);
+      }
       
       const formatter = new OutputFormatter();
       console.log(formatter.format(result));
       
+      if (isVerbose) {
+        console.timeEnd(`${methodName}-formatting`);
+      }
+      
+      const endTime = performance.now();
+      const responseTime = Math.round((endTime - startTime) * 100) / 100; // Round to 2 decimal places
+      
+      // Show response time (always visible for user feedback)
+      console.log(chalk.gray(`\n⏱️  Response time: ${responseTime}ms`));
+      
+      if (isVerbose) {
+        console.timeEnd(`${methodName}-total`);
+      }
+      
     } catch (error: any) {
+      const endTime = performance.now();
+      const responseTime = Math.round((endTime - startTime) * 100) / 100;
+      
       console.error(chalk.red(`Failed to execute ${methodName}:`), error.message);
-      if (process.env.VERBOSE) {
+      console.log(chalk.gray(`⏱️  Failed after: ${responseTime}ms`));
+      
+      if (isVerbose) {
         console.error(error.stack);
+        console.timeEnd(`${methodName}-total`);
       }
       process.exit(1);
     } finally {
@@ -183,7 +235,41 @@ function addSchemaOptions(cmd: Command, properties: Record<string, any>, prefix 
   });
 }
 
-async function buildParams(options: CommandOptions, methodSchema: MethodSchema): Promise<any> {
+function getCommandWithPositionalArgs(commandName: string, methodSchema: MethodSchema): string {
+  // Check if method expects an ID parameter (common pattern)
+  if (hasIdParameter(methodSchema)) {
+    return `${commandName} <id>`;
+  }
+  
+  return commandName;
+}
+
+function hasIdParameter(methodSchema: MethodSchema): boolean {
+  if (!methodSchema.params || !methodSchema.params.properties) {
+    return false;
+  }
+  
+  const paramsSchema = methodSchema.params as any;
+  
+  // Look for nested id parameter in schema structure
+  for (const topLevelKey of Object.keys(paramsSchema.properties)) {
+    const topLevelProp = paramsSchema.properties[topLevelKey];
+    
+    if (topLevelProp && topLevelProp.properties) {
+      for (const secondLevelKey of Object.keys(topLevelProp.properties)) {
+        const secondLevelProp = topLevelProp.properties[secondLevelKey];
+        
+        if (secondLevelProp && secondLevelProp.properties && secondLevelProp.properties.id) {
+          return true;
+        }
+      }
+    }
+  }
+  
+  return false;
+}
+
+async function buildParams(options: CommandOptions, methodSchema: MethodSchema, positionalArgs: any[] = []): Promise<any> {
   let params: any = {};
 
   // 1. If JSON params provided directly via --params option
@@ -214,7 +300,15 @@ async function buildParams(options: CommandOptions, methodSchema: MethodSchema):
     params = { ...params, ...schemaParams };
   }
 
-  // 4. If no params provided but schema requires them, build default structure
+  // 4. Handle positional arguments (like room ID)
+  if (positionalArgs.length > 0 && hasIdParameter(methodSchema)) {
+    const idValue = parseInt(positionalArgs[0]);
+    if (!isNaN(idValue)) {
+      params = mergeIdParameter(params, methodSchema, idValue);
+    }
+  }
+
+  // 5. If no params provided but schema requires them, build default structure
   if (Object.keys(params).length === 0 && methodSchema.params && (methodSchema.params as any).required) {
     params = buildDefaultParams(methodSchema);
   }
@@ -249,6 +343,39 @@ function buildDefaultParams(methodSchema: MethodSchema): any {
     }
   }
 
+  return params;
+}
+
+function mergeIdParameter(params: any, methodSchema: MethodSchema, idValue: number): any {
+  const paramsSchema = methodSchema.params as any;
+  
+  if (!paramsSchema || !paramsSchema.properties) {
+    return params;
+  }
+  
+  // Find the nested structure where the ID should go
+  for (const topLevelKey of Object.keys(paramsSchema.properties)) {
+    const topLevelProp = paramsSchema.properties[topLevelKey];
+    
+    if (topLevelProp && topLevelProp.properties) {
+      for (const secondLevelKey of Object.keys(topLevelProp.properties)) {
+        const secondLevelProp = topLevelProp.properties[secondLevelKey];
+        
+        if (secondLevelProp && secondLevelProp.properties && secondLevelProp.properties.id) {
+          // Build nested structure with ID
+          if (!params[topLevelKey]) {
+            params[topLevelKey] = {};
+          }
+          if (!params[topLevelKey][secondLevelKey]) {
+            params[topLevelKey][secondLevelKey] = {};
+          }
+          params[topLevelKey][secondLevelKey].id = idValue;
+          return params;
+        }
+      }
+    }
+  }
+  
   return params;
 }
 

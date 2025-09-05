@@ -54,9 +54,8 @@ export class OutputFormatter {
       return this.formatArrayTable(data, options);
     }
 
-    // Handle single object
-    if (data.data && Array.isArray(data.data)) {
-      // Spruthub API response format
+    // Handle Spruthub API response format
+    if (data.isSuccess !== undefined && data.data) {
       return this.formatApiResponseTable(data as ApiResponse, options);
     }
 
@@ -89,31 +88,48 @@ export class OutputFormatter {
   }
 
   private formatApiResponseTable(data: ApiResponse, options: FormatOptions = {}): string {
-    const header: string[] = [];
-    
-    if (data.isSuccess !== undefined) {
-      header.push(`Status: ${data.isSuccess ? chalk.green('Success') : chalk.red('Failed')}`);
-    }
-    
-    if (data.message) {
-      header.push(`Message: ${data.message}`);
-    }
-
-    if (data.code !== undefined) {
-      header.push(`Code: ${data.code}`);
-    }
-
-    let output = header.length > 0 ? header.join(', ') + '\n\n' : '';
-
-    if (data.data) {
-      if (Array.isArray(data.data)) {
-        output += this.formatArrayTable(data.data, options);
-      } else {
-        output += this.formatObjectTable(data.data, options);
+    // For API responses, focus on the actual data rather than the wrapper
+    if (data.isSuccess && data.data) {
+      // Check if data has a common collection pattern (like rooms.rooms, accessories.accessories)
+      if (data.data.rooms && Array.isArray(data.data.rooms)) {
+        return this.formatArrayTable(data.data.rooms, options);
       }
+      if (data.data.accessories && Array.isArray(data.data.accessories)) {
+        return this.formatArrayTable(data.data.accessories, options);
+      }
+      if (data.data.scenarios && Array.isArray(data.data.scenarios)) {
+        return this.formatArrayTable(data.data.scenarios, options);
+      }
+      if (data.data.hubs && Array.isArray(data.data.hubs)) {
+        return this.formatArrayTable(data.data.hubs, options);
+      }
+      
+      // If data itself is an array
+      if (Array.isArray(data.data)) {
+        return this.formatArrayTable(data.data, options);
+      }
+      
+      // For simple objects, show them directly
+      return this.formatObjectTable(data.data, options);
+    }
+    
+    // For error responses, show the full response
+    const table = new Table({
+      style: { border: [], head: [] }
+    });
+
+    table.push(['isSuccess', data.isSuccess ? chalk.green('true') : chalk.red('false')]);
+    if (data.code !== undefined) {
+      table.push(['code', chalk.yellow(data.code.toString())]);
+    }
+    if (data.message) {
+      table.push(['message', data.message]);
+    }
+    if (data.data && !data.isSuccess) {
+      table.push(['error', this.formatValue(data.data)]);
     }
 
-    return output;
+    return table.toString();
   }
 
   private formatObjectTable(data: Record<string, any>, options: FormatOptions = {}): string {
@@ -145,6 +161,12 @@ export class OutputFormatter {
     }
     
     if (typeof value === 'object') {
+      // For performance, limit JSON stringification for complex objects
+      const jsonStr = JSON.stringify(value);
+      if (jsonStr.length > 200) {
+        // For large objects, show truncated version
+        return jsonStr.substring(0, 200) + chalk.gray('... (truncated)');
+      }
       return JSON.stringify(value, null, 2);
     }
     
