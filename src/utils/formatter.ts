@@ -234,8 +234,8 @@ export class OutputFormatter {
         const formatted = JSON.stringify(parsed, null, 2);
         
         // If formatted JSON is still too long, truncate it
-        if (formatted.length > 200) {
-          const truncated = formatted.substring(0, 197) + '...';
+        if (formatted.length > 800) {
+          const truncated = formatted.substring(0, 797) + '...';
           return truncated;
         }
         return formatted;
@@ -252,22 +252,16 @@ export class OutputFormatter {
   }
 
   private formatComplexObject(obj: any): string {
-    const keys = Object.keys(obj);
+    // Format object as JSON with proper indentation
+    const formatted = JSON.stringify(obj, null, 2);
     
-    // If object has few keys and simple values, show inline
-    if (keys.length <= 2) {
-      const pairs = keys.map(key => {
-        const value = obj[key];
-        if (typeof value === 'object') {
-          return `${key}: {...}`;
-        }
-        return `${key}: ${this.truncateValue(value, 15)}`;
-      });
-      return pairs.join(', ');
+    // If object is reasonably sized, show it completely
+    if (formatted.length <= 1200) {
+      return formatted;
     }
     
-    // For larger objects, show summary
-    return `{${keys.length} keys}`;
+    // For very large objects, truncate but still show structure
+    return formatted.substring(0, 1197) + '...';
   }
 
   private truncateValue(value: any, maxLength = 20): string {
