@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { resolve } from 'node:path';
 import chalk from 'chalk';
 
 export interface ScenarioData {

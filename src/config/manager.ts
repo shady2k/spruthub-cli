@@ -141,7 +141,7 @@ class ConfigManager {
       // Remove from keytar
       try {
         await keytar.deletePassword(SERVICE_NAME, `${profileName}_password`);
-      } catch (error) {
+      } catch {
         // Password might not exist, continue anyway
       }
 
@@ -174,7 +174,7 @@ class ConfigManager {
     for (const profileName of Object.keys(config.profiles)) {
       try {
         await keytar.deletePassword(SERVICE_NAME, `${profileName}_password`);
-      } catch (error) {
+      } catch {
         // Ignore errors
       }
     }
@@ -182,7 +182,7 @@ class ConfigManager {
     // Remove config file
     try {
       await fs.unlink(CONFIG_FILE);
-    } catch (error) {
+    } catch {
       // Ignore if file doesn't exist
     }
 

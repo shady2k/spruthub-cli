@@ -176,7 +176,7 @@ class SprutHubClientWrapper {
     if (this.client) {
       try {
         await this.client.close();
-      } catch (error) {
+      } catch {
         // Ignore close errors
       }
       this.client = null;
