@@ -1,0 +1,68 @@
+{
+  "name": "spruthub-cli",
+  "version": "1.0.0",
+  "description": "CLI tool for managing Spruthub smart home devices",
+  "type": "module",
+  "main": "dist/cli.js",
+  "bin": {
+    "spruthub-cli": "./dist/bin/spruthub-cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx bin/spruthub-cli.ts",
+    "start": "node bin/spruthub-cli.js",
+    "test": "jest",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "prepublishOnly": "npm run build && npm run lint && npm run test"
+  },
+  "keywords": [
+    "spruthub",
+    "smart-home",
+    "cli",
+    "iot",
+    "home-automation",
+    "websocket",
+    "json-rpc"
+  ],
+  "author": "shady2k <shady2k@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^11.1.0",
+    "inquirer": "^9.2.12",
+    "chalk": "^5.3.0",
+    "ora": "^7.0.1",
+    "cli-table3": "^0.6.3",
+    "js-yaml": "^4.1.0",
+    "keytar": "^7.9.0",
+    "spruthub-client": "^1.2.10"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/inquirer": "^9.0.7",
+    "@types/js-yaml": "^4.0.9",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "tsx": "^4.6.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shady2k/spruthub-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/shady2k/spruthub-cli/issues"
+  },
+  "homepage": "https://github.com/shady2k/spruthub-cli#readme",
+  "preferGlobal": true
+}
