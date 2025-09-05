@@ -475,16 +475,16 @@ export async function pullCommand(scenario?: string, destination?: string, optio
 
       // Create scenario directory structure: scenarios/{type}/{index}/
       const scenarioDir = resolve(typeDir, scenario);
-      const scenarioJsonPath = resolve(scenarioDir, 'scenario.json');
+      const backupJsonPath = resolve(scenarioDir, 'backup.json');
       
       // Check if scenario directory exists and handle conflicts
       let existingData = null;
       let shouldOverwrite = options.force;
       
       try {
-        await fs.access(scenarioJsonPath);
+        await fs.access(backupJsonPath);
         // Scenario exists, read current content for comparison
-        const existingContent = await fs.readFile(scenarioJsonPath, 'utf8');
+        const existingContent = await fs.readFile(backupJsonPath, 'utf8');
         try {
           existingData = JSON.parse(existingContent);
         } catch {
@@ -545,8 +545,9 @@ export async function pullCommand(scenario?: string, destination?: string, optio
 
       // Extract code to separate files
       try {
+        spinner.stop(); // Stop spinner before extracting code to avoid console conflicts
         await extractScenarioCode(response.data as ScenarioData, scenarioDir);
-        spinner.succeed(`✓ Scenario ${scenario} saved and code extracted to ${scenarioDir}`);
+        console.log(chalk.green(`✓ Scenario ${scenario} saved and code extracted to ${scenarioDir}`));
       } catch (error: any) {
         spinner.fail(`Failed to extract code for scenario ${scenario}`);
         console.error(chalk.red('Extract Error:'), error.message);
@@ -554,7 +555,7 @@ export async function pullCommand(scenario?: string, destination?: string, optio
         // Fallback: save as original JSON file
         console.log(chalk.yellow('Falling back to original JSON format...'));
         await fs.mkdir(scenarioDir, { recursive: true });
-        await fs.writeFile(scenarioJsonPath, JSON.stringify(response.data, null, 2));
+        await fs.writeFile(backupJsonPath, JSON.stringify(response.data, null, 2));
         console.log(chalk.yellow(`✓ Scenario ${scenario} saved as JSON backup`));
       }
       return;
@@ -655,16 +656,16 @@ export async function pullCommand(scenario?: string, destination?: string, optio
 
       // Create scenario directory structure: scenarios/{type}/{index}/
       const scenarioDir = resolve(typeDir, scenario.index);
-      const scenarioJsonPath = resolve(scenarioDir, 'scenario.json');
+      const backupJsonPath = resolve(scenarioDir, 'backup.json');
       
       // Check if scenario directory exists and handle conflicts
       let existingData = null;
       let shouldOverwrite = options.force;
       
       try {
-        await fs.access(scenarioJsonPath);
+        await fs.access(backupJsonPath);
         // Scenario exists, read current content for comparison
-        const existingContent = await fs.readFile(scenarioJsonPath, 'utf8');
+        const existingContent = await fs.readFile(backupJsonPath, 'utf8');
         try {
           existingData = JSON.parse(existingContent);
         } catch {
@@ -730,7 +731,7 @@ export async function pullCommand(scenario?: string, destination?: string, optio
         // Fallback: save as original JSON file
         try {
           await fs.mkdir(scenarioDir, { recursive: true });
-          await fs.writeFile(scenarioJsonPath, JSON.stringify(fullScenarioResponse.data, null, 2));
+          await fs.writeFile(backupJsonPath, JSON.stringify(fullScenarioResponse.data, null, 2));
           createdCount++;
           console.log(chalk.yellow(`✓ Scenario ${scenario.index} saved as JSON backup`));
         } catch (fallbackError) {

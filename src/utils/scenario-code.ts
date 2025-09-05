@@ -66,8 +66,8 @@ export async function extractScenarioCode(scenarioData: ScenarioData, scenarioDi
   await fs.mkdir(scenarioDir, { recursive: true });
 
   // Save original JSON as backup
-  const originalJsonPath = resolve(scenarioDir, 'scenario.json');
-  await fs.writeFile(originalJsonPath, JSON.stringify(scenarioData, null, 2));
+  const backupJsonPath = resolve(scenarioDir, 'backup.json');
+  await fs.writeFile(backupJsonPath, JSON.stringify(scenarioData, null, 2));
 
   if (scenarioData.type === 'BLOCK') {
     await extractBlockScenario(scenarioData, scenarioDir);
