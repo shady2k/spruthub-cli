@@ -19,15 +19,20 @@ export class OutputFormatter {
   format(data: any, options: FormatOptions = {}): string {
     const format = process.env.OUTPUT_FORMAT || this.outputFormat;
     
+    // Auto-detect log data and use logs format if not explicitly set
+    const shouldUseLogs = format === 'logs' || (format === 'table' && this.isLogData(data));
+    
     switch (format) {
       case 'json':
         return this.formatJson(data, options);
       case 'yaml':
         return this.formatYaml(data, options);
+      case 'logs':
+        return this.formatLogs(data, options);
       case 'table':
-        return this.formatTable(data, options);
+        return shouldUseLogs ? this.formatLogs(data, options) : this.formatTable(data, options);
       default:
-        return this.formatTable(data, options);
+        return shouldUseLogs ? this.formatLogs(data, options) : this.formatTable(data, options);
     }
   }
 
@@ -61,6 +66,244 @@ export class OutputFormatter {
 
     // Handle simple key-value object
     return this.formatObjectTable(data);
+  }
+
+  private formatLogs(data: any, options: FormatOptions = {}): string {
+    if (!data || typeof data !== 'object') {
+      return String(data);
+    }
+
+    // Handle API response wrapper
+    let logData = data;
+    if (data.isSuccess !== undefined && data.data !== undefined) {
+      logData = data.data;
+    }
+
+    // Handle collection patterns (single key with array value)
+    const collectionArray = this.detectCollectionPattern(logData);
+    if (collectionArray) {
+      logData = collectionArray;
+    }
+
+    if (!Array.isArray(logData)) {
+      return this.formatTable(data, options);
+    }
+
+    if (logData.length === 0) {
+      return chalk.gray('No logs to display');
+    }
+
+    const lines = logData.map(entry => this.formatLogEntry(entry)).filter(Boolean);
+    return lines.join('\n\n');
+  }
+
+  private formatLogEntry(entry: any): string {
+    if (!entry || typeof entry !== 'object') {
+      return String(entry);
+    }
+
+    // Extract common log fields
+    const level = entry.level || entry.Level || entry.severity || '';
+    const message = entry.message || entry.Message || entry.msg || '';
+    const timestamp = entry.time || entry.timestamp || entry.Time || entry.date || '';
+    const path = entry.path || entry.source || entry.logger || entry.category || '';
+
+    // Format timestamp
+    const formattedTime = this.formatTimestamp(timestamp);
+    
+    // Format log level with colors
+    const formattedLevel = this.formatLogLevel(level);
+    
+    // Format the message (keep it simple for one-line)
+    let formattedMessage = this.formatLogMessageOneline(message);
+    
+    // Add other fields that aren't already included
+    const excludeFields = ['level', 'Level', 'severity', 'message', 'Message', 'msg', 'time', 'timestamp', 'Time', 'date', 'path', 'source', 'logger', 'category'];
+    const otherFields = Object.keys(entry).filter(key => !excludeFields.includes(key));
+    
+    if (otherFields.length > 0) {
+      const extras = otherFields.map(key => {
+        const value = entry[key];
+        return `${key}=${this.formatLogValueOneline(value)}`;
+      }).join(' ');
+      
+      if (formattedMessage) {
+        formattedMessage += ` ${extras}`;
+      } else {
+        formattedMessage = extras;
+      }
+    }
+
+    // Build one-line format: timestamp  level  source  message
+    const parts = [formattedTime, formattedLevel];
+    
+    if (path) {
+      parts.push(chalk.cyan(path));
+    }
+    
+    if (formattedMessage) {
+      parts.push(formattedMessage);
+    }
+
+    return parts.join('  ');
+  }
+
+  private formatTimestamp(timestamp: any): string {
+    if (!timestamp) {
+      return chalk.gray('--:--:--');
+    }
+
+    let date: Date;
+    
+    if (typeof timestamp === 'number') {
+      // Handle Unix timestamps (both seconds and milliseconds)
+      date = new Date(timestamp > 1000000000000 ? timestamp : timestamp * 1000);
+    } else if (typeof timestamp === 'string') {
+      date = new Date(timestamp);
+    } else {
+      return chalk.gray(String(timestamp));
+    }
+
+    if (isNaN(date.getTime())) {
+      return chalk.gray(String(timestamp));
+    }
+
+    // Format as YYYY-MM-DD HH:MM:SS
+    return chalk.blue(date.toISOString().replace('T', ' ').slice(0, 19));
+  }
+
+  private formatLogLevel(level: string): string {
+    const levelStr = String(level).toUpperCase();
+    
+    if (levelStr.includes('ERROR') || levelStr.includes('ERR')) {
+      return chalk.red(levelStr.padEnd(8));
+    }
+    if (levelStr.includes('WARN')) {
+      return chalk.yellow(levelStr.padEnd(8));
+    }
+    if (levelStr.includes('INFO')) {
+      return chalk.cyan(levelStr.padEnd(8));
+    }
+    if (levelStr.includes('DEBUG') || levelStr.includes('DBG')) {
+      return chalk.gray(levelStr.padEnd(8));
+    }
+    if (levelStr.includes('TRACE')) {
+      return chalk.magenta(levelStr.padEnd(8));
+    }
+    
+    return chalk.white(levelStr.padEnd(8));
+  }
+
+  private formatLogMessage(message: any): string {
+    if (!message) {
+      return '';
+    }
+
+    const str = String(message);
+    
+    // Try to parse and format JSON objects in the message
+    if (str.includes('{') && str.includes('}')) {
+      // Look for JSON-like patterns and format them
+      return str.replace(/\{[^{}]*\}/g, (match) => {
+        try {
+          const parsed = JSON.parse(match);
+          return JSON.stringify(parsed, null, 2).replace(/\n/g, '\n  ');
+        } catch {
+          return match;
+        }
+      });
+    }
+
+    return str;
+  }
+
+  private formatLogMessageOneline(message: any): string {
+    if (!message) {
+      return '';
+    }
+
+    const str = String(message);
+    
+    // For one-line format, keep JSON compact
+    if (str.includes('{') && str.includes('}')) {
+      return str.replace(/\{[^{}]*\}/g, (match) => {
+        try {
+          const parsed = JSON.parse(match);
+          return JSON.stringify(parsed); // Compact JSON, no indentation
+        } catch {
+          return match;
+        }
+      });
+    }
+
+    return str;
+  }
+
+  private formatLogValueOneline(value: any): string {
+    if (value === null || value === undefined) {
+      return chalk.gray('null');
+    }
+    
+    if (typeof value === 'object') {
+      return JSON.stringify(value); // Compact JSON for one-line
+    }
+    
+    return String(value);
+  }
+
+  private formatLogValue(value: any): string {
+    if (value === null || value === undefined) {
+      return chalk.gray('null');
+    }
+    
+    if (typeof value === 'object') {
+      return JSON.stringify(value, null, 0);
+    }
+    
+    return String(value);
+  }
+
+  private isLogData(data: any): boolean {
+    if (!data || typeof data !== 'object') {
+      return false;
+    }
+
+    // Handle API response wrapper
+    let checkData = data;
+    if (data.isSuccess !== undefined && data.data !== undefined) {
+      checkData = data.data;
+    }
+
+    // Handle collection patterns
+    const collectionArray = this.detectCollectionPattern(checkData);
+    if (collectionArray) {
+      checkData = collectionArray;
+    }
+
+    if (!Array.isArray(checkData) || checkData.length === 0) {
+      return false;
+    }
+
+    // Check if the first few items have log-like fields
+    const logFields = ['level', 'Level', 'severity', 'message', 'Message', 'msg', 'time', 'timestamp', 'Time', 'date', 'path', 'source', 'logger'];
+    const sampleSize = Math.min(3, checkData.length);
+    
+    for (let i = 0; i < sampleSize; i++) {
+      const item = checkData[i];
+      if (!item || typeof item !== 'object') {
+        continue;
+      }
+      
+      const itemKeys = Object.keys(item);
+      const logFieldCount = logFields.filter(field => itemKeys.includes(field)).length;
+      
+      // If we have at least 2 log-like fields, consider it log data
+      if (logFieldCount >= 2) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private formatArrayTable(data: any[], options: FormatOptions = {}): string {

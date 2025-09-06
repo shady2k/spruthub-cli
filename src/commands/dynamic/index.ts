@@ -158,9 +158,10 @@ function addMethodCommand(parentCmd: Command, commandName: string, methodName: s
     }
     
     try {
-      // Commander passes positional arguments first, then options object last
-      const options = args[args.length - 1] as CommandOptions;
-      const positionalArgs = args.slice(0, -1);
+      // Commander.js passes: [options, command] when no positional args
+      // Commander.js passes: [pos1, pos2, ..., options, command] when there are positional args
+      const options = args[args.length - 2] as CommandOptions; // Options are second-to-last
+      const positionalArgs = args.slice(0, -2); // Everything except the last 2 are positional
       
       if (isVerbose) {
         console.log(chalk.cyan(`[DEBUG] Executing ${methodName} with profile: ${options.profile || 'default'}`));
@@ -221,17 +222,24 @@ function addMethodCommand(parentCmd: Command, commandName: string, methodName: s
 function addSchemaOptions(cmd: Command, properties: Record<string, any>, prefix = ''): void {
   Object.keys(properties).forEach(key => {
     const prop = properties[key];
-    const optionName = prefix ? `${prefix}-${key}` : key;
-    const flagName = `--${optionName.replace(/[A-Z]/g, '-$&').toLowerCase()}`;
     
-    if (prop.type === 'string') {
-      cmd.option(`${flagName} <value>`, prop.description);
-    } else if (prop.type === 'number' || prop.type === 'integer') {
-      cmd.option(`${flagName} <number>`, prop.description);
-    } else if (prop.type === 'boolean') {
-      cmd.option(flagName, prop.description);
+    if (prop.properties) {
+      // Recursively handle nested objects
+      addSchemaOptions(cmd, prop.properties, prefix ? `${prefix}-${key}` : key);
+    } else if (prop.type && (prop.type === 'string' || prop.type === 'number' || prop.type === 'integer' || prop.type === 'boolean')) {
+      // Use the actual parameter name directly - no hardcoding needed!
+      const optionName = key; // Simple: just use the leaf parameter name
+      const flagName = `--${optionName.replace(/[A-Z]/g, '-$&').toLowerCase()}`;
+      
+      if (prop.type === 'string') {
+        cmd.option(`${flagName} <value>`, prop.description);
+      } else if (prop.type === 'number' || prop.type === 'integer') {
+        cmd.option(`${flagName} <number>`, prop.description);
+      } else if (prop.type === 'boolean') {
+        cmd.option(flagName, prop.description);
+      }
     }
-    // For complex types, we'll rely on JSON input
+    // For complex types that aren't objects, we'll rely on JSON input
   });
 }
 
@@ -413,23 +421,31 @@ function mergePositionalParameters(params: any, methodSchema: MethodSchema, posi
 function buildSchemaParams(options: any, properties: Record<string, any>, result: any = {}, prefix = ''): any {
   Object.keys(properties).forEach(key => {
     const prop = properties[key];
-    // CamelCase the option name for Commander (e.g., 'user-id' -> 'userId')
-    const optionName = prefix ? `${prefix}${key.charAt(0).toUpperCase() + key.slice(1)}` : key;
     
-    // Commander stores option values in a camelCased key.
-    // We need to find the corresponding key in the options object.
-    const flagKey = optionName.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+    if (prop.properties) {
+      // Handle nested objects recursively
+      if (!result[key]) {
+        result[key] = {};
+      }
+      buildSchemaParams(options, prop.properties, result[key], prefix ? `${prefix}-${key}` : key);
+    } else if (prop.type && (prop.type === 'string' || prop.type === 'number' || prop.type === 'integer' || prop.type === 'boolean')) {
+      // Use the actual parameter name directly - no hardcoding needed!
+      const optionName = key; // Simple: just use the leaf parameter name
+      
+      // Convert to camelCase for Commander lookup (though it should already be the same)
+      const flagKey = optionName.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
 
-    if (options[flagKey] !== undefined) {
-      if ((prop.type === 'number' || prop.type === 'integer') && typeof options[flagKey] === 'string') {
-        result[key] = parseInt(options[flagKey], 10);
-        if (isNaN(result[key])) {
-          throw new Error(`Invalid number for option "${key}"`);
+      if (options[flagKey] !== undefined) {
+        if ((prop.type === 'number' || prop.type === 'integer') && typeof options[flagKey] === 'string') {
+          result[key] = parseInt(options[flagKey], 10);
+          if (isNaN(result[key])) {
+            throw new Error(`Invalid number for option "--${optionName}"`);
+          }
+        } else if (prop.type === 'boolean') {
+          result[key] = true; // Commander sets boolean flags to true when present
+        } else {
+          result[key] = options[flagKey];
         }
-      } else if (prop.type === 'boolean') {
-        result[key] = true; // Commander sets boolean flags to true when present
-      } else {
-        result[key] = options[flagKey];
       }
     }
   });
