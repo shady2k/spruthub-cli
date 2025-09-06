@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import client from '../../utils/client.js';
 import { OutputFormatter } from '../../utils/formatter.js';
 import logger from '../../utils/logger.js';
+import { LogStreamer } from '../../utils/log-streamer.js';
 import type { CommandOptions, MethodSchema } from '../../types/index.js';
 import { 
   addSchemaOptions, 
@@ -24,9 +25,11 @@ export function addMethodCommand(parentCmd: Command, commandName: string, method
     .option('--params <json>', 'parameters as JSON string')
     .option('--file <file>', 'read parameters from JSON file');
 
-  // Add special filtering for log.list
+  // Add special filtering and streaming for log.list
   if (methodName === 'log.list') {
     cmd.option('--scenario-id <id>', 'Filter logs by scenario ID');
+    cmd.option('-f, --follow', 'Follow new logs in real-time (like tail -f)');
+    cmd.option('-n, --lines <n>', 'Number of recent logs to show before following (default: 20)', '20');
   }
 
   // Get positional parameters to avoid creating conflicting options
@@ -60,12 +63,36 @@ export function addMethodCommand(parentCmd: Command, commandName: string, method
       
       const params = await buildParams(options, methodSchema, positionalArgs);
       
+      // Handle -n/--lines option for log.list (convert to count parameter)
+      if (methodName === 'log.list' && (options as any).lines && !params.count) {
+        const lines = parseInt((options as any).lines, 10);
+        if (!isNaN(lines) && lines > 0) {
+          params.count = lines;
+        }
+      }
+      
       if (isVerbose) {
         console.timeEnd(`${methodName}-param-building`);
         console.log(chalk.cyan(`[DEBUG] Built parameters:`), JSON.stringify(params, null, 2));
         console.time(`${methodName}-api-call`);
       }
       
+      // Handle log streaming for log.list with --follow flag
+      if (methodName === 'log.list' && (options as any).follow) {
+        const scenarioId = (options as any).scenarioId;
+        const count = parseInt((options as any).lines || '20', 10);
+        
+        const streamer = new LogStreamer();
+        await streamer.startStreaming({
+          scenarioId,
+          count,
+          verbose: !!isVerbose
+        });
+        
+        // Exit gracefully - streaming handles its own lifecycle
+        return;
+      }
+
       const result = await client.callMethod(methodName, params, options.profile);
 
       if (isVerbose) {
@@ -101,6 +128,24 @@ export function addMethodCommand(parentCmd: Command, commandName: string, method
           }
         } catch (error) {
           logger.warn('Failed to filter logs by scenario ID:', (error as Error).message);
+        }
+      }
+
+      // Reverse log order for chronological display (oldest first)
+      if (methodName === 'log.list' && result && result.data) {
+        try {
+          if (Array.isArray(result.data)) {
+            result.data = [...result.data].reverse();
+          } else if (typeof result.data === 'object' && !Array.isArray(result.data)) {
+            const keys = Object.keys(result.data);
+            if (keys.length === 1 && Array.isArray(result.data[keys[0]])) {
+              const key = keys[0];
+              result.data[key] = [...result.data[key]].reverse();
+            }
+          }
+        } catch (error) {
+          // If reversing fails, continue with original order
+          logger.warn('Failed to reverse log order:', (error as Error).message);
         }
       }
 

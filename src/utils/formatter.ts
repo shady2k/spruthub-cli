@@ -97,7 +97,7 @@ export class OutputFormatter {
     return lines.join('\n');
   }
 
-  private formatLogEntry(entry: any): string {
+  formatLogEntry(entry: any): string {
     if (!entry || typeof entry !== 'object') {
       return String(entry);
     }

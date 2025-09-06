@@ -216,6 +216,27 @@ class SprutHubClientWrapper {
   getRestMethods(): any[] {
     return Schema.getRestMethods();
   }
+
+  // Log streaming methods (WebSocket only)
+  async subscribeLogs(callback: (logEntry: any) => void): Promise<any> {
+    const client = await this.getClient();
+    return client.subscribeLogs(callback);
+  }
+
+  async unsubscribeLogs(subscriptionId: string): Promise<any> {
+    const client = await this.getClient();
+    return client.unsubscribeLogs(subscriptionId);
+  }
+
+  async unsubscribeAllLogs(): Promise<any> {
+    const client = await this.getClient();
+    return client.unsubscribeAllLogs();
+  }
+
+  getActiveLogSubscriptions(): any[] {
+    if (!this.client) return [];
+    return this.client.getActiveLogSubscriptions();
+  }
 }
 
 // Export singleton instance
