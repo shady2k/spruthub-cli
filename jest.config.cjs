@@ -7,7 +7,8 @@ module.exports = {
     '^chalk$': '<rootDir>/tests/__mocks__/chalk.js',
     '^ora$': '<rootDir>/tests/__mocks__/ora.js',
     '^cli-table3$': '<rootDir>/tests/__mocks__/cli-table3.js',
-    '^js-yaml$': '<rootDir>/tests/__mocks__/js-yaml.js'
+    '^js-yaml$': '<rootDir>/tests/__mocks__/js-yaml.js',
+    '^keytar$': '<rootDir>/tests/__mocks__/keytar.js'
   },
   transform: {
     '^.+\\.ts$': ['ts-jest', {
