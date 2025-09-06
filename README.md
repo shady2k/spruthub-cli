@@ -1,6 +1,6 @@
-# Spruthub CLI
+# Sprut.hub CLI
 
-A command-line interface tool for managing Spruthub smart home devices. Built with TypeScript and ES modules, providing complete access to all Spruthub API methods through dynamic command generation.
+A command-line interface tool for managing [Sprut.hub](https://spruthub.ru/) smart home devices. Built with TypeScript and ES modules, providing complete access to all Sprut.hub API methods through dynamic command generation.
 
 ## Features
 
@@ -20,7 +20,7 @@ npm install -g spruthub-cli
 
 ## Quick Start
 
-1. **Login to your Spruthub device**:
+1. **Login to your Sprut.hub device**:
    ```bash
    spruthub-cli login
    ```
@@ -44,39 +44,47 @@ npm install -g spruthub-cli
 
 ### Core Commands
 
-- `spruthub-cli login` - Setup authentication with Spruthub device
+- `spruthub-cli login` - Setup authentication with Sprut.hub device
 - `spruthub-cli logout` - Remove saved credentials  
 - `spruthub-cli status` - Check connection status and profile info
 - `spruthub-cli use <profile>` - Switch between profiles
 - `spruthub-cli push <source>` - Upload scenarios/scripts to device
 - `spruthub-cli pull [destination]` - Download scenarios from device
+- `spruthub-cli deploy <scenarioId>` - Deploy scenario: push, run, and monitor for errors
+- `spruthub-cli logs [options]` - View and stream system logs with filtering options
 
 ### Dynamic API Commands
 
 All spruthub-client API methods are available as commands, organized by category:
 
 #### Hub Management
-- `spruthub-cli hub list` - List all hubs
-- `spruthub-cli hub clientInfo` - Set client information
+- `spruthub-cli hub list` - List all Sprut.hub devices/hubs in the system
+- `spruthub-cli server clientInfo` - Set client information for current connection
 
 #### Device Control  
-- `spruthub-cli accessory list` - List all accessories
-- `spruthub-cli accessory search` - Smart device search with filters
-- `spruthub-cli characteristic update` - Update device characteristics
+- `spruthub-cli accessory list` - List all accessories (smart devices) with services and characteristics
+- `spruthub-cli accessory search` - Search and filter accessories with smart filtering
+- `spruthub-cli characteristic update` - Update a characteristic value on a device
 
 #### Scenario Management
 - `spruthub-cli scenario list` - List all scenarios
-- `spruthub-cli scenario get <id>` - Get specific scenario
-- `spruthub-cli scenario create` - Create new scenario
-- `spruthub-cli scenario update <id>` - Update scenario
-- `spruthub-cli scenario delete <id>` - Delete scenario
+- `spruthub-cli scenario get <index>` - Get a specific scenario by index
+- `spruthub-cli scenario create` - Create a new scenario
+- `spruthub-cli scenario update <index>` - Update an existing scenario
+- `spruthub-cli scenario delete <index>` - Delete a scenario
+- `spruthub-cli scenario run <index>` - Run/execute a scenario
 
 #### Room Management
 - `spruthub-cli room list` - List all rooms
-- `spruthub-cli room get <id>` - Get specific room
+- `spruthub-cli room get <id>` - Get a specific room by ID
 
 #### System Information
-- `spruthub-cli system version` - Get system version
+- `spruthub-cli server version` - Get version information
+
+#### Log Management
+- `spruthub-cli log list` - Get system logs with optional count limit
+- `spruthub-cli log subscribe` - Subscribe to real-time log streaming via WebSocket
+- `spruthub-cli log unsubscribe` - Unsubscribe from real-time log streaming
 
 ### Method Discovery
 
@@ -88,14 +96,14 @@ All spruthub-client API methods are available as commands, organized by category
 
 ### Smart Device Search
 ```bash
-# Find devices in kitchen
-spruthub-cli accessory search --room kitchen
+# Search accessories with smart filtering
+spruthub-cli accessory search
 
-# Search for lights
-spruthub-cli accessory search --search "light" --type lightbulb
+# Search for specific devices
+spruthub-cli accessory search --params '{"search":"light"}'
 
-# Find online devices only
-spruthub-cli accessory search --online
+# Filter by room or other criteria
+spruthub-cli accessory search --params '{"roomName":"kitchen"}'
 ```
 
 ### Output Formats
@@ -112,11 +120,14 @@ spruthub-cli scenario list
 
 ### Using Parameters
 ```bash
-# Via command line options
-spruthub-cli characteristic update --a-id "12345" --s-id "67890" --c-id "switch"
-
-# Via JSON parameters
+# Update device characteristic
 spruthub-cli characteristic update --params '{"aId":"12345","sId":"67890","cId":"switch","control":{"value":{"boolValue":true}}}'
+
+# Run a scenario
+spruthub-cli scenario run --params '{"index":0}'
+
+# Get specific scenario
+spruthub-cli scenario get --params '{"index":0}'
 
 # Via JSON file
 spruthub-cli scenario create --file scenario.json
@@ -132,6 +143,36 @@ spruthub-cli status --profile development
 
 # Use specific profile for commands
 spruthub-cli hub list --profile production
+```
+
+### Deployment Workflow
+```bash
+# Deploy a scenario (push + run + show logs)
+spruthub-cli deploy 0
+
+# Deploy without showing logs
+spruthub-cli deploy 0 --no-logs
+
+# Deploy with specific profile
+spruthub-cli deploy 0 --profile production
+```
+
+### Log Management
+```bash
+# Show recent logs
+spruthub-cli log list
+
+# Show specific number of logs
+spruthub-cli log list -n 50
+
+# Filter logs by scenario
+spruthub-cli log list --scenario-id 0
+
+# Follow logs in real-time (like tail -f)
+spruthub-cli log list --follow
+
+# Follow logs for specific scenario
+spruthub-cli log list --follow --scenario-id 0 -n 10
 ```
 
 ## Configuration
@@ -169,9 +210,9 @@ npm run lint
 
 ## Requirements
 
-- Node.js >= 16.0.0
-- Spruthub smart home system
-- Network access to Spruthub WebSocket server
+- Node.js >= 20.0.0
+- Sprut.hub smart home system
+- Network access to Sprut.hub WebSocket server
 
 ## License
 
@@ -188,5 +229,5 @@ MIT
 ## Support
 
 - [GitHub Issues](https://github.com/shady2k/spruthub-cli/issues)
-- [Spruthub Documentation](https://spruthub.ru/)
+- [Sprut.hub Documentation](https://spruthub.ru/)
 - [spruthub-client Library](https://github.com/shady2k/spruthub-client)

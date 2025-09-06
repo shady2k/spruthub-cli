@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run test` - Run Jest tests
 - `npm run lint` - Run ESLint on TypeScript files
 - `npm run lint:fix` - Run ESLint with auto-fix
+- `npm run prepublishOnly` - Full build, lint, and test pipeline (runs before npm publish)
 
 ### Local Development
 - Use `npm run dev -- <command>` to test CLI commands during development
@@ -36,10 +37,12 @@ This is a TypeScript CLI tool built with ES modules that provides a command-line
 ### Key Technical Details
 
 - **ES Modules**: Uses `"type": "module"` with modern import/export syntax
-- **TypeScript**: Strict mode with comprehensive type checking enabled
+- **TypeScript**: Strict mode with comprehensive type checking enabled (ES2022 target)
+- **Node.js**: Requires Node.js >=20.0.0
 - **Secure Credentials**: Uses keytar for encrypted credential storage in system keychain  
 - **Commander.js**: For CLI argument parsing and command organization
 - **WebSocket Client**: Via spruthub-client for real-time communication with devices
+- **Testing**: Jest for unit tests (though test files should be created as needed)
 
 ### Command Generation Flow
 
@@ -62,3 +65,10 @@ This is a TypeScript CLI tool built with ES modules that provides a command-line
 - Performance monitoring with response time display
 - Comprehensive debug logging with `--verbose` flag
 - Automatic client disconnection after command execution
+
+## Code Style & Linting
+
+- **ESLint Configuration**: Uses @typescript-eslint with strict rules
+- **Unused Variables**: Must be prefixed with `_` if intentionally unused
+- **Type Safety**: `noImplicitAny`, `strictNullChecks`, and other strict TypeScript options enabled
+- **Module Boundaries**: Explicit function return types and module boundary types are optional
