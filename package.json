@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/cli.js",
   "bin": {
-    "spruthub-cli": "./dist/bin/spruthub-cli.js"
+    "spruthub-cli": "dist/bin/spruthub-cli.js"
   },
   "scripts": {
     "build": "tsc",
