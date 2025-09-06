@@ -7,7 +7,6 @@ import type { CommandOptions, MethodSchema } from '../../types/index.js';
 
 export function loadDynamicCommands(program: Command): void {
   try {
-    const schema = client.getSchema();
     const categories = client.getCategories();
     
     // Add a methods command for discovery
@@ -143,6 +142,11 @@ function addMethodCommand(parentCmd: Command, commandName: string, methodName: s
     .option('--params <json>', 'parameters as JSON string')
     .option('--file <file>', 'read parameters from JSON file');
 
+  // Add special filtering for log.list
+  if (methodName === 'log.list') {
+    cmd.option('--scenario-id <id>', 'Filter logs by scenario ID');
+  }
+
   // Get positional parameters to avoid creating conflicting options
   const positionalParams = getPositionalParameters(methodSchema);
   const positionalParamNames = positionalParams.map(p => p.name);
@@ -181,12 +185,43 @@ function addMethodCommand(parentCmd: Command, commandName: string, methodName: s
       }
       
       const result = await client.callMethod(methodName, params, options.profile);
-      
+
       if (isVerbose) {
         console.timeEnd(`${methodName}-api-call`);
         console.time(`${methodName}-formatting`);
       }
       
+      const scenarioId = (options as any).scenarioId;
+
+      if (methodName === 'log.list' && scenarioId && result && result.data) {
+        try {
+          let logs: any[] = [];
+          
+          if (Array.isArray(result.data)) {
+            logs = result.data;
+          } else if (typeof result.data === 'object' && !Array.isArray(result.data)) {
+            const keys = Object.keys(result.data);
+            if (keys.length === 1 && Array.isArray(result.data[keys[0]])) {
+              logs = result.data[keys[0]];
+            }
+          }
+
+          if (logs.length > 0) {
+            const regex = new RegExp(`Сценарий ${scenarioId}\\b`);
+            const filteredLogs = logs.filter(log => typeof log === 'object' && log.message && regex.test(log.message));
+            
+            if (Array.isArray(result.data)) {
+                result.data = filteredLogs;
+            } else {
+                const key = Object.keys(result.data)[0];
+                result.data[key] = filteredLogs;
+            }
+          }
+        } catch (error) {
+          logger.warn('Failed to filter logs by scenario ID:', (error as Error).message);
+        }
+      }
+
       const formatter = new OutputFormatter();
       console.log(formatter.format(result));
       
