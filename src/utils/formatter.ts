@@ -94,7 +94,7 @@ export class OutputFormatter {
     }
 
     const lines = logData.map(entry => this.formatLogEntry(entry)).filter(Boolean);
-    return lines.join('\n\n');
+    return lines.join('\n');
   }
 
   private formatLogEntry(entry: any): string {
