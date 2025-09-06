@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { loginCommand, logoutCommand } from './login.js';
 import { statusCommand, switchProfileCommand } from './status.js';
 import { pushCommand, pullCommand } from './scripts.js';
+import { deployCommand } from './deploy.js';
 
 export function loadCoreCommands(program: Command): void {
   // Login command
@@ -44,4 +45,13 @@ export function loadCoreCommands(program: Command): void {
     .option('-p, --profile <profile>', 'use specific profile')
     .option('-f, --force', 'overwrite existing files without confirmation')
     .action(pullCommand);
+
+  // Deploy command for push + run + monitor
+  program
+    .command('deploy <scenarioId>')
+    .description('Deploy scenario: push, run, and monitor for errors')
+    .option('-p, --profile <profile>', 'use specific profile')
+    .option('-f, --force', 'overwrite existing scenarios without confirmation')
+    .option('--no-logs', 'skip log monitoring after deployment')
+    .action(deployCommand);
 }

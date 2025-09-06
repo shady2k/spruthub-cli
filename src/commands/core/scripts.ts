@@ -15,7 +15,7 @@ async function validateScenarioData(data: any): Promise<boolean> {
   // Required fields from schema
   const requiredFields = ['index', 'name', 'type'];
   for (const field of requiredFields) {
-    if (!data.hasOwnProperty(field)) {
+    if (!Object.prototype.hasOwnProperty.call(data, field)) {
       return false;
     }
   }
@@ -132,7 +132,7 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
     // Check if source exists
     try {
       await fs.access(sourcePath);
-    } catch (error) {
+    } catch {
       throw new Error(`Source "${source}" does not exist`);
     }
 
@@ -232,7 +232,7 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
       const pathStat = await fs.stat(filePath);
       let localData: ScenarioData;
       let scenarioIndex: string;
-      let displayName: string = filePath.split('/').pop() || 'unknown';
+      const displayName: string = filePath.split('/').pop() || 'unknown';
       
       try {
         if (pathStat.isDirectory()) {
@@ -259,7 +259,7 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
           const localContent = await fs.readFile(filePath, 'utf8');
           try {
             localData = JSON.parse(localContent);
-          } catch (parseError) {
+          } catch {
             console.error(chalk.red(`✗ Invalid JSON in ${displayName}`));
             errorCount++;
             break; // Stop on first error as requested
@@ -431,7 +431,7 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
           break;
         }
         
-        updateSpinner.succeed(`✓ Updated and verified scenario ${scenarioIndex}`);
+        updateSpinner.succeed(`Updated and verified scenario ${scenarioIndex}`);
         updatedCount++;
         
       } catch (error: any) {

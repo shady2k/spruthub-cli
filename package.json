@@ -35,7 +35,7 @@
     "js-yaml": "^4.1.0",
     "keytar": "^7.9.0",
     "ora": "^7.0.1",
-    "spruthub-client": "^1.2.10",
+    "spruthub-client": "^1.2.11",
     "typescript-eslint": "^8.42.0"
   },
   "devDependencies": {
