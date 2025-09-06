@@ -143,9 +143,13 @@ function addMethodCommand(parentCmd: Command, commandName: string, methodName: s
     .option('--params <json>', 'parameters as JSON string')
     .option('--file <file>', 'read parameters from JSON file');
 
-  // Add specific options based on schema
+  // Get positional parameters to avoid creating conflicting options
+  const positionalParams = getPositionalParameters(methodSchema);
+  const positionalParamNames = positionalParams.map(p => p.name);
+
+  // Add specific options based on schema (excluding positional ones)
   if (methodSchema.params && methodSchema.params.properties) {
-    addSchemaOptions(cmd, methodSchema.params.properties);
+    addSchemaOptions(cmd, methodSchema.params.properties, '', positionalParamNames);
   }
 
   cmd.action(async (...args: any[]) => {
@@ -219,14 +223,19 @@ function addMethodCommand(parentCmd: Command, commandName: string, methodName: s
   });
 }
 
-function addSchemaOptions(cmd: Command, properties: Record<string, any>, prefix = ''): void {
+function addSchemaOptions(cmd: Command, properties: Record<string, any>, prefix = '', excludeParams: string[] = []): void {
   Object.keys(properties).forEach(key => {
     const prop = properties[key];
     
     if (prop.properties) {
       // Recursively handle nested objects
-      addSchemaOptions(cmd, prop.properties, prefix ? `${prefix}-${key}` : key);
+      addSchemaOptions(cmd, prop.properties, prefix ? `${prefix}-${key}` : key, excludeParams);
     } else if (prop.type && (prop.type === 'string' || prop.type === 'number' || prop.type === 'integer' || prop.type === 'boolean')) {
+      // Skip if this parameter is already handled as a positional argument
+      if (excludeParams.includes(key)) {
+        return;
+      }
+      
       // Use the actual parameter name directly - no hardcoding needed!
       const optionName = key; // Simple: just use the leaf parameter name
       const flagName = `--${optionName.replace(/[A-Z]/g, '-$&').toLowerCase()}`;
