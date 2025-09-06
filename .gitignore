@@ -71,3 +71,5 @@ temp/
 
 # Spruthub scenarios (downloaded files)
 scenarios/
+.serena/project.yml
+.serena/.gitignore

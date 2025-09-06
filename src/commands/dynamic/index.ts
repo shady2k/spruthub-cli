@@ -164,14 +164,14 @@ function addMethodCommand(parentCmd: Command, commandName: string, methodName: s
       
       if (isVerbose) {
         console.log(chalk.cyan(`[DEBUG] Executing ${methodName} with profile: ${options.profile || 'default'}`));
-        console.log(chalk.cyan(`[DEBUG] Positional args:`, positionalArgs));
+        console.log(chalk.cyan(`[DEBUG] Positional args:`), JSON.stringify(positionalArgs, null, 2));
       }
       
       const params = await buildParams(options, methodSchema, positionalArgs);
       
       if (isVerbose) {
         console.timeEnd(`${methodName}-param-building`);
-        console.log(chalk.cyan(`[DEBUG] Built parameters:`, JSON.stringify(params, null, 2)));
+        console.log(chalk.cyan(`[DEBUG] Built parameters:`), JSON.stringify(params, null, 2));
         console.time(`${methodName}-api-call`);
       }
       

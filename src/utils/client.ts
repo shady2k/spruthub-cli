@@ -2,7 +2,6 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { Sprut, Schema } from 'spruthub-client';
 import configManager from '../config/manager.js';
-import logger from './logger.js';
 import type { ConnectionStatus, ApiResponse } from '../types/index.js';
 
 class SprutHubClientWrapper {
@@ -51,7 +50,7 @@ class SprutHubClientWrapper {
         sprutEmail: credentials.email,
         sprutPassword: credentials.password,
         serial: credentials.serial,
-        logger: process.env.VERBOSE ? logger : quietLogger,
+        logger: quietLogger,
         defaultTimeout: 10000
       });
       
@@ -68,6 +67,8 @@ class SprutHubClientWrapper {
       if (isVerbose) {
         const connTime = Math.round((performance.now() - connStart) * 100) / 100;
         spinner.succeed(`Connected to Spruthub device (${connTime}ms)`);
+        console.log(chalk.cyan(`[DEBUG] Connection established successfully`));
+        console.log(chalk.cyan(`[DEBUG] Client ready for API calls`));
       } else {
         spinner.succeed('Connected to Spruthub device');
       }
@@ -119,11 +120,13 @@ class SprutHubClientWrapper {
     }
     
     const client = await this.getClient(profileName);
-    
+
     if (isVerbose) {
       const connectionTime = Math.round((performance.now() - connectionStart) * 100) / 100;
       console.log(chalk.cyan(`[DEBUG] Connection ready in ${connectionTime}ms`));
-      console.log(chalk.cyan(`[DEBUG] Calling ${methodName} with params:`), JSON.stringify(params, null, 2));
+      console.log(chalk.cyan(`[DEBUG] Raw request to spruthub-client:`));
+      console.log(chalk.cyan(`[DEBUG]   Method: ${methodName}`));
+      console.log(chalk.cyan(`[DEBUG]   Params:`), JSON.stringify(params, null, 2));
     }
     
     const apiStart = performance.now();
@@ -139,14 +142,19 @@ class SprutHubClientWrapper {
       if (isVerbose) {
         const apiTime = Math.round((performance.now() - apiStart) * 100) / 100;
         console.log(chalk.cyan(`[DEBUG] API call completed in ${apiTime}ms`));
-        console.log(chalk.cyan(`[DEBUG] Result success: ${result.isSuccess}, data length: ${JSON.stringify(result.data).length} chars`));
+        console.log(chalk.cyan(`[DEBUG] Raw response from spruthub-client:`));
+        console.log(chalk.cyan(`[DEBUG]   Success: ${result.isSuccess}`));
+        console.log(chalk.cyan(`[DEBUG]   Code: ${result.code}`));
+        console.log(chalk.cyan(`[DEBUG]   Message: ${result.message || 'N/A'}`));
+        console.log(chalk.cyan(`[DEBUG]   Data:`), JSON.stringify(result.data, null, 2));
       }
       
       return result;
     } catch (error) {
       if (isVerbose) {
         const apiTime = Math.round((performance.now() - apiStart) * 100) / 100;
-        console.log(chalk.red(`[DEBUG] API call failed in ${apiTime}ms:`, error));
+        console.log(chalk.red(`[DEBUG] API call failed in ${apiTime}ms:`));
+        console.log(chalk.red(`[DEBUG] Error details:`), JSON.stringify(error, null, 2));
       }
       throw error;
     }

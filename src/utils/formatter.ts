@@ -55,7 +55,7 @@ export class OutputFormatter {
     }
 
     // Handle Spruthub API response format
-    if (data.isSuccess !== undefined && data.data) {
+    if (data.isSuccess !== undefined && data.data !== undefined) {
       return this.formatApiResponseTable(data as ApiResponse, options);
     }
 
@@ -124,8 +124,19 @@ export class OutputFormatter {
         return this.formatArrayTable(collectionArray, options);
       }
       
+      // Check if data is empty object
+      if (typeof data.data === 'object' && Object.keys(data.data).length === 0) {
+        // For successful operations with empty data, show a success message
+        return chalk.green('✓ Operation completed successfully');
+      }
+      
       // For simple objects, show them directly
       return this.formatObjectTable(data.data);
+    }
+    
+    // For successful responses with no data, show success message
+    if (data.isSuccess) {
+      return chalk.green('✓ Operation completed successfully');
     }
     
     // For error responses, show the full response
