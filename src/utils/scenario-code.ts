@@ -69,6 +69,17 @@ export async function extractScenarioCode(scenarioData: ScenarioData, scenarioDi
   const backupJsonPath = resolve(scenarioDir, 'backup.json');
   await fs.writeFile(backupJsonPath, JSON.stringify(scenarioData, null, 2));
 
+  // Extract data property to separate file
+  const dataJsonPath = resolve(scenarioDir, 'data.json');
+  await fs.writeFile(dataJsonPath, scenarioData.data);
+
+  // Create metadata without the data field
+  const metadata = { ...scenarioData };
+  metadata.data = '__DATA__'; // Placeholder
+
+  const metadataPath = resolve(scenarioDir, 'metadata.json');
+  await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2));
+
   if (scenarioData.type === 'BLOCK') {
     await extractBlockScenario(scenarioData, scenarioDir);
   } else if (scenarioData.type === 'LOGIC' || scenarioData.type === 'GLOBAL') {
@@ -94,7 +105,7 @@ async function extractBlockScenario(scenarioData: ScenarioData, scenarioDir: str
     throw new Error('Block scenario data must have targets array');
   }
 
-  // Extract code blocks and create metadata structure
+  // Extract code blocks and create updated data structure
   const metadataTargets = [];
   const codeFiles: { blockId: number; code: string }[] = [];
 
@@ -106,25 +117,24 @@ async function extractBlockScenario(scenarioData: ScenarioData, scenarioDir: str
         code: target.code
       });
       
-      // Create metadata entry without code
+      // Create data entry without code
       const metadataTarget = { ...target };
       metadataTarget.code = `__BLOCK_${target.blockId}__`; // Placeholder
       metadataTargets.push(metadataTarget);
     } else {
-      // Non-code targets go directly to metadata
+      // Non-code targets go directly to data
       metadataTargets.push(target);
     }
   }
 
-  // Create metadata.json with structure but without code
-  const metadata = { ...scenarioData };
-  metadata.data = JSON.stringify({
+  // Update data.json with structure but without code
+  const updatedBlockData = {
     ...blockData,
     targets: metadataTargets
-  });
+  };
 
-  const metadataPath = resolve(scenarioDir, 'metadata.json');
-  await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2));
+  const dataJsonPath = resolve(scenarioDir, 'data.json');
+  await fs.writeFile(dataJsonPath, JSON.stringify(updatedBlockData, null, 2));
 
   // Create individual code files
   for (const codeFile of codeFiles) {
@@ -141,19 +151,78 @@ async function extractBlockScenario(scenarioData: ScenarioData, scenarioDir: str
  * Extract code from LOGIC or GLOBAL scenario
  */
 async function extractLogicOrGlobalScenario(scenarioData: ScenarioData, scenarioDir: string): Promise<void> {
-  // Create metadata without the data field
-  const metadata = { ...scenarioData };
-  metadata.data = '__CODE__'; // Placeholder
-
-  const metadataPath = resolve(scenarioDir, 'metadata.json');
-  await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2));
-
   // Create code file with the entire data content
   const codeFilePath = resolve(scenarioDir, 'code.js');
   await fs.writeFile(codeFilePath, scenarioData.data);
 
   if (process.env.VERBOSE) {
     console.log(chalk.green(`✓ Extracted code from ${scenarioData.type.toLowerCase()} scenario ${scenarioData.index}`));
+  }
+}
+
+/**
+ * Validate scenario directory structure and data without injecting
+ */
+export async function validateScenarioDirectory(scenarioDir: string): Promise<{ isValid: boolean; error?: string }> {
+  try {
+    const metadataPath = resolve(scenarioDir, 'metadata.json');
+    
+    // Check if metadata.json exists and is valid
+    let metadata: ScenarioData;
+    try {
+      const metadataContent = await fs.readFile(metadataPath, 'utf8');
+      metadata = JSON.parse(metadataContent);
+    } catch (error) {
+      return { isValid: false, error: `Failed to read or parse metadata.json: ${error}` };
+    }
+
+    // Check if data.json exists and is valid JSON when using new format
+    if (metadata.data === '__DATA__') {
+      const dataJsonPath = resolve(scenarioDir, 'data.json');
+      try {
+        const dataContent = await fs.readFile(dataJsonPath, 'utf8');
+        JSON.parse(dataContent); // Validate JSON syntax
+      } catch (error) {
+        return { isValid: false, error: `Failed to read or parse data.json: ${error}` };
+      }
+    }
+    // Check if code.js exists for legacy format
+    else if (metadata.data === '__CODE__' && (metadata.type === 'LOGIC' || metadata.type === 'GLOBAL')) {
+      const codeFilePath = resolve(scenarioDir, 'code.js');
+      try {
+        await fs.access(codeFilePath);
+      } catch (error) {
+        return { isValid: false, error: `Failed to access code.js: ${error}` };
+      }
+    }
+
+    // For BLOCK scenarios, validate code block files exist
+    if (metadata.type === 'BLOCK' && metadata.data === '__DATA__') {
+      const dataJsonPath = resolve(scenarioDir, 'data.json');
+      try {
+        const dataContent = await fs.readFile(dataJsonPath, 'utf8');
+        const blockData = JSON.parse(dataContent);
+        
+        if (blockData.targets && Array.isArray(blockData.targets)) {
+          for (const target of blockData.targets) {
+            if (target.type === 'code' && target.code === `__BLOCK_${target.blockId}__`) {
+              const codeFilePath = resolve(scenarioDir, `block-${target.blockId}.js`);
+              try {
+                await fs.access(codeFilePath);
+              } catch (error) {
+                return { isValid: false, error: `Missing code file block-${target.blockId}.js: ${error}` };
+              }
+            }
+          }
+        }
+      } catch (error) {
+        return { isValid: false, error: `Failed to validate block scenario structure: ${error}` };
+      }
+    }
+
+    return { isValid: true };
+  } catch (error) {
+    return { isValid: false, error: `Validation failed: ${error}` };
   }
 }
 
@@ -169,6 +238,27 @@ export async function injectScenarioCode(scenarioDir: string): Promise<ScenarioD
     metadata = JSON.parse(metadataContent);
   } catch (error) {
     throw new Error(`Failed to read metadata.json: ${error}`);
+  }
+
+  // Check if we need to inject data from data.json (new format)
+  if (metadata.data === '__DATA__') {
+    const dataJsonPath = resolve(scenarioDir, 'data.json');
+    try {
+      const dataContent = await fs.readFile(dataJsonPath, 'utf8');
+      metadata.data = dataContent;
+    } catch (error) {
+      throw new Error(`Failed to read data.json: ${error}`);
+    }
+  }
+  // Check if we need to inject code (legacy format for LOGIC/GLOBAL)
+  else if (metadata.data === '__CODE__' && (metadata.type === 'LOGIC' || metadata.type === 'GLOBAL')) {
+    const codeFilePath = resolve(scenarioDir, 'code.js');
+    try {
+      const codeContent = await fs.readFile(codeFilePath, 'utf8');
+      metadata.data = codeContent;
+    } catch (error) {
+      throw new Error(`Failed to read code.js: ${error}`);
+    }
   }
 
   if (metadata.type === 'BLOCK') {
@@ -189,11 +279,11 @@ async function injectBlockScenario(metadata: ScenarioData, scenarioDir: string):
   try {
     blockData = JSON.parse(metadata.data);
   } catch (error) {
-    throw new Error(`Invalid JSON in metadata data: ${error}`);
+    throw new Error(`Invalid JSON in scenario data: ${error}`);
   }
 
   if (!blockData.targets || !Array.isArray(blockData.targets)) {
-    throw new Error('Block scenario metadata must have targets array');
+    throw new Error('Block scenario data must have targets array');
   }
 
   // Process targets and inject code
@@ -237,22 +327,16 @@ async function injectBlockScenario(metadata: ScenarioData, scenarioDir: string):
 /**
  * Inject code for LOGIC or GLOBAL scenario
  */
-async function injectLogicOrGlobalScenario(metadata: ScenarioData, scenarioDir: string): Promise<ScenarioData> {
-  const codeFilePath = resolve(scenarioDir, 'code.js');
+async function injectLogicOrGlobalScenario(metadata: ScenarioData, _scenarioDir: string): Promise<ScenarioData> {
+  // Data should already be injected in the main injectScenarioCode function
+  // For LOGIC/GLOBAL scenarios, the data is either already set or read from code.js (legacy)
   
-  try {
-    const codeContent = await fs.readFile(codeFilePath, 'utf8');
-    
-    const finalScenario = { ...metadata };
-    finalScenario.data = codeContent;
-    
-    if (process.env.VERBOSE) {
-      console.log(chalk.green(`✓ Injected code into ${metadata.type.toLowerCase()} scenario ${metadata.index}`));
-    }
-    return finalScenario;
-  } catch (error) {
-    throw new Error(`Failed to read code file code.js: ${error}`);
+  const finalScenario = { ...metadata };
+  
+  if (process.env.VERBOSE) {
+    console.log(chalk.green(`✓ Processed ${metadata.type.toLowerCase()} scenario ${metadata.index}`));
   }
+  return finalScenario;
 }
 
 /**
@@ -262,7 +346,18 @@ export async function hasExtractedCode(scenarioDir: string): Promise<boolean> {
   try {
     const metadataPath = resolve(scenarioDir, 'metadata.json');
     await fs.access(metadataPath);
-    return true;
+    
+    // Check if it has either the new format (data.json) or legacy format structure
+    const dataJsonPath = resolve(scenarioDir, 'data.json');
+    try {
+      await fs.access(dataJsonPath);
+      return true; // New format with data.json
+    } catch {
+      // Check for legacy format with placeholders in metadata
+      const metadataContent = await fs.readFile(metadataPath, 'utf8');
+      const metadata = JSON.parse(metadataContent);
+      return metadata.data === '__CODE__' || metadata.data === '__DATA__';
+    }
   } catch {
     return false;
   }
@@ -279,5 +374,22 @@ export async function getScenarioType(scenarioDir: string): Promise<'BLOCK' | 'L
     return metadata.type || null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Restore scenario directory to match the original remote data when push fails
+ */
+export async function restoreFromRemoteData(scenarioDir: string, originalRemoteData: ScenarioData): Promise<void> {
+  try {
+    // Re-extract the remote data to restore the directory structure
+    await extractScenarioCode(originalRemoteData, scenarioDir);
+    
+    if (process.env.VERBOSE) {
+      console.log(chalk.yellow(`🔄 Restored scenario directory from original remote data`));
+    }
+    
+  } catch (error) {
+    throw new Error(`Failed to restore from remote data: ${error}`);
   }
 }

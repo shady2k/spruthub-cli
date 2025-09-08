@@ -4,7 +4,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import client from '../../utils/client.js';
 import type { CommandOptions } from '../../types/index.js';
-import { extractScenarioCode, injectScenarioCode, hasExtractedCode, type ScenarioData } from '../../utils/scenario-code.js';
+import { extractScenarioCode, injectScenarioCode, hasExtractedCode, validateScenarioDirectory, type ScenarioData } from '../../utils/scenario-code.js';
 
 async function validateScenarioData(data: any): Promise<boolean> {
   // Basic validation - ensure it's a valid scenario object
@@ -236,10 +236,18 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
       
       try {
         if (pathStat.isDirectory()) {
-          // Directory with extracted code - inject code back to JSON
+          // Directory with extracted code - validate first, then inject code back to JSON
           scenarioIndex = displayName;
           if (process.env.VERBOSE) {
             console.log(chalk.cyan(`Processing extracted scenario directory ${displayName}...`));
+          }
+          
+          // Validate directory structure and data before attempting injection
+          const validation = await validateScenarioDirectory(filePath);
+          if (!validation.isValid) {
+            console.error(chalk.red(`✗ Invalid scenario data for ${displayName}:`), validation.error);
+            errorCount++;
+            break;
           }
           
           try {
@@ -299,6 +307,9 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
         }
         
         spinner.succeed(`Remote scenario ${scenarioIndex} fetched`);
+        
+        // Store original remote data for potential restore
+        const originalRemoteData = { ...remoteResponse.data };
         
         // Compare scenarios
         if (process.env.VERBOSE) {
@@ -427,6 +438,49 @@ export async function pushCommand(source: string, options: CommandOptions = {}):
         if (!isNowEqual) {
           updateSpinner.fail(`Update verification failed for scenario ${scenarioIndex}`);
           console.error(chalk.red('Error:'), 'Scenario was not updated correctly');
+          
+          // Restore the scenario on the Spruthub device to its original state
+          try {
+            console.log(chalk.yellow(`🔄 Restoring scenario ${scenarioIndex} on Spruthub device...`));
+            
+            // Prepare restore data with original remote data
+            const restoreParams = {
+              scenario: {
+                update: {
+                  index: originalRemoteData.index,
+                  name: originalRemoteData.name || '',
+                  desc: originalRemoteData.desc || '',
+                  type: originalRemoteData.type,
+                  active: originalRemoteData.active,
+                  onStart: originalRemoteData.onStart,
+                  sync: originalRemoteData.sync,
+                  data: typeof originalRemoteData.data === 'string' ? originalRemoteData.data : JSON.stringify(originalRemoteData.data)
+                }
+              }
+            };
+            
+            if (process.env.VERBOSE) {
+              console.log(chalk.gray(`[VERBOSE] Restore params being sent to Spruthub:`));
+              console.log(chalk.gray(JSON.stringify(restoreParams, null, 2)));
+            }
+            
+            const restoreResponse = await client.callMethod('scenario.update', restoreParams, options.profile);
+            
+            if (process.env.VERBOSE) {
+              console.log(chalk.gray(`[VERBOSE] Scenario restore response:`));
+              console.log(chalk.gray(JSON.stringify(restoreResponse, null, 2)));
+            }
+            
+            if (restoreResponse.isSuccess) {
+              console.log(chalk.green(`✓ Scenario ${scenarioIndex} restored on Spruthub device`));
+              console.log(chalk.blue(`ℹ️  Your local changes are preserved. Fix the issues and push again.`));
+            } else {
+              console.error(chalk.red(`✗ Failed to restore scenario ${scenarioIndex} on Spruthub:`), restoreResponse.message);
+            }
+          } catch (restoreError) {
+            console.error(chalk.red('Failed to restore scenario on Spruthub device:'), restoreError);
+          }
+          
           errorCount++;
           break;
         }
