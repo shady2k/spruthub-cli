@@ -1,4 +1,242 @@
-# Sprut.hub CLI
+# Sprut.hub CLI (Русский)
+
+[![npm version](https://badge.fury.io/js/spruthub-cli.svg)](https://badge.fury.io/js/spruthub-cli)
+
+Инструмент командной строки для управления устройствами умного дома [Sprut.hub](https://spruthub.ru/). Создан с использованием TypeScript и ES-модулей, предоставляет полный доступ ко всем методам API Sprut.hub через динамическую генерацию команд.
+
+## Возможности
+
+- **Динамическая генерация команд**: Все API-методы из spruthub-client автоматически доступны как команды CLI
+- **Множественные форматы вывода**: JSON, YAML и форматированные таблицы
+- **Безопасное управление учетными данными**: Зашифрованное хранение учетных данных с использованием keytar
+- **Управление профилями**: Поддержка нескольких профилей устройств
+- **Управление скриптами**: Push/pull сценариев
+- **TypeScript**: Полная типовая безопасность и современные ES-модули
+- **Обнаружение методов**: Встроенное исследование API и документация
+
+## Установка
+
+```bash
+npm install -g spruthub-cli
+```
+
+## Быстрый старт
+
+1. **Вход в ваше устройство Sprut.hub**:
+   ```bash
+   spruthub-cli login
+   ```
+
+2. **Проверка статуса подключения**:
+   ```bash
+   spruthub-cli status
+   ```
+
+3. **Обнаружение доступных команд**:
+   ```bash
+   spruthub-cli methods list
+   ```
+
+4. **Список ваших устройств**:
+   ```bash
+   spruthub-cli accessory list
+   ```
+
+## Команды
+
+### Основные команды
+
+- `spruthub-cli login` - Настройка аутентификации с устройством Sprut.hub
+- `spruthub-cli logout` - Удаление сохраненных учетных данных
+- `spruthub-cli status` - Проверка статуса подключения и информации о профиле
+- `spruthub-cli use <profile>` - Переключение между профилями
+- `spruthub-cli push <source>` - Загрузка сценариев на устройство
+- `spruthub-cli pull [destination]` - Скачивание сценариев с устройства
+- `spruthub-cli deploy <scenarioId>` - Развертывание сценария: push, запуск и мониторинг ошибок
+- `spruthub-cli logs [options]` - Просмотр и потоковая передача системных логов с возможностью фильтрации
+
+### Динамические API команды
+
+Все методы API spruthub-client доступны как команды, организованные по категориям:
+
+#### Управление хабом
+- `spruthub-cli hub list` - Список всех хабов Sprut.hub в системе
+- `spruthub-cli server clientInfo` - Установка информации о клиенте для текущего подключения
+
+#### Управление устройствами
+- `spruthub-cli accessory list` - Список всех аксессуаров (умных устройств) с сервисами и характеристиками
+- `spruthub-cli accessory search` - Поиск и фильтрация аксессуаров с умной фильтрацией
+- `spruthub-cli characteristic update` - Обновление значения характеристики устройства
+
+#### Управление сценариями
+- `spruthub-cli scenario list` - Список всех сценариев
+- `spruthub-cli scenario get <index>` - Получение конкретного сценария по индексу
+- `spruthub-cli scenario create` - Создание нового сценария
+- `spruthub-cli scenario update <index>` - Обновление существующего сценария
+- `spruthub-cli scenario delete <index>` - Удаление сценария
+- `spruthub-cli scenario run <index>` - Запуск сценария
+
+#### Управление комнатами
+- `spruthub-cli room list` - Список всех комнат
+- `spruthub-cli room get <id>` - Получение конкретной комнаты по ID
+
+#### Системная информация
+- `spruthub-cli server version` - Получение информации о версии
+
+#### Управление логами
+- `spruthub-cli log list` - Получение системных логов с опциональным ограничением количества
+
+### Обнаружение методов
+
+- `spruthub-cli methods list` - Показать все доступные API методы
+- `spruthub-cli methods categories` - Показать все категории команд
+- `spruthub-cli methods describe <method>` - Показать детальную схему метода
+
+## Примеры использования
+
+### Умный поиск устройств
+```bash
+# Поиск аксессуаров с умной фильтрацией
+spruthub-cli accessory search
+
+# Поиск конкретных устройств
+spruthub-cli accessory search --params '{"search":"light"}'
+
+# Фильтрация по комнате или другим критериям
+spruthub-cli accessory search --params '{"roomName":"kitchen"}'
+```
+
+### Форматы вывода
+```bash
+# JSON вывод
+spruthub-cli hub list --format json
+
+# YAML вывод
+spruthub-cli accessory list --format yaml
+
+# Табличный формат по умолчанию
+spruthub-cli scenario list
+```
+
+### Использование параметров
+```bash
+# Обновление характеристики устройства
+spruthub-cli characteristic update --params '{"aId":"12345","sId":"67890","cId":"switch","control":{"value":{"boolValue":true}}}'
+
+# Запуск сценария
+spruthub-cli scenario run 0
+
+# Получение конкретного сценария
+spruthub-cli scenario get 0
+
+# Через JSON файл
+spruthub-cli scenario create --file scenario.json
+```
+
+### Управление профилями
+```bash
+# Переключение на другой профиль
+spruthub-cli use production
+
+# Проверка статуса конкретного профиля
+spruthub-cli status --profile development
+
+# Использование конкретного профиля для команд
+spruthub-cli hub list --profile production
+```
+
+### Рабочий процесс развертывания
+```bash
+# Развертывание сценария (push + run + показать логи)
+spruthub-cli deploy 0
+
+# Развертывание без показа логов
+spruthub-cli deploy 0 --no-logs
+
+# Развертывание с конкретным профилем
+spruthub-cli deploy 0 --profile production
+```
+
+### Управление логами
+```bash
+# Показать недавние логи
+spruthub-cli log list
+
+# Показать определенное количество логов
+spruthub-cli log list -n 50
+
+# Фильтрация логов по сценарию
+spruthub-cli log list --scenario-id 0
+
+# Отслеживание логов в реальном времени (как tail -f)
+spruthub-cli log list --follow
+
+# Отслеживание логов для конкретного сценария
+spruthub-cli log list --follow --scenario-id 0 -n 10
+```
+
+## Конфигурация
+
+Конфигурация и учетные данные хранятся в `~/.spruthub/`:
+
+- `config.json` - Конфигурации профилей и настройки
+- Пароли безопасно хранятся в системной связке ключей через keytar
+
+## Разработка
+
+```bash
+# Клонирование и установка зависимостей
+git clone https://github.com/shady2k/spruthub-cli.git
+cd spruthub-cli
+npm install
+
+# Сборка TypeScript
+npm run build
+
+# Запуск в режиме разработки
+npm run dev -- --help
+
+# Линтинг кода
+npm run lint
+```
+
+## Архитектура
+
+- **TypeScript + ES Modules**: Современный JavaScript с полной типовой безопасностью
+- **Динамические команды**: Автогенерируемые из системы Schema spruthub-client
+- **Безопасное хранение**: Keytar для шифрования учетных данных
+- **Множественные форматы**: JSON, YAML и табличный вывод
+- **Обертка клиента**: Унифицированный интерфейс для spruthub-client с обработкой ошибок
+
+## Требования
+
+- Node.js >= 20.0.0
+- Система умного дома Sprut.hub
+- Сетевой доступ к WebSocket серверу Sprut.hub
+
+## Лицензия
+
+MIT
+
+## Содействие
+
+1. Сделайте форк репозитория
+2. Создайте ветку функций
+3. Внесите изменения с правильной типизацией TypeScript
+4. Добавьте тесты, если применимо
+5. Отправьте pull request
+
+## Поддержка
+
+- [GitHub Issues](https://github.com/shady2k/spruthub-cli/issues)
+- [Документация Sprut.hub](https://spruthub.ru/)
+- [Библиотека spruthub-client](https://github.com/shady2k/spruthub-client)
+
+---
+
+# Sprut.hub CLI (English)
+
+[![npm version](https://badge.fury.io/js/spruthub-cli.svg)](https://badge.fury.io/js/spruthub-cli)
 
 A command-line interface tool for managing [Sprut.hub](https://spruthub.ru/) smart home devices. Built with TypeScript and ES modules, providing complete access to all Sprut.hub API methods through dynamic command generation.
 
