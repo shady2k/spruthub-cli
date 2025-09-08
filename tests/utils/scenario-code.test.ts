@@ -66,24 +66,7 @@ describe('scenario-code utilities', () => {
       expect(result.error).toContain('Failed to read or parse metadata.json');
     });
 
-    it('should validate new format LOGIC scenario successfully', async () => {
-      const metadata = {
-        index: '1',
-        name: 'Test Logic',
-        type: 'LOGIC',
-        data: '__DATA__'
-      };
-      
-      await fs.writeFile(resolve(tempDir, 'metadata.json'), JSON.stringify(metadata, null, 2));
-      await fs.writeFile(resolve(tempDir, 'data.json'), '"console.log(\\"test\\");"');
-      
-      const result = await validateScenarioDirectory(tempDir);
-      
-      expect(result.isValid).toBe(true);
-      expect(result.error).toBeUndefined();
-    });
-
-    it('should validate legacy format LOGIC scenario successfully', async () => {
+    it('should validate LOGIC scenario with legacy format successfully', async () => {
       const metadata = {
         index: '1',
         name: 'Test Logic',
@@ -100,11 +83,12 @@ describe('scenario-code utilities', () => {
       expect(result.error).toBeUndefined();
     });
 
-    it('should return invalid when data.json is missing for new format', async () => {
+
+    it('should return invalid when data.json is missing for BLOCK format', async () => {
       const metadata = {
         index: '1',
-        name: 'Test Logic',
-        type: 'LOGIC',
+        name: 'Test Block',
+        type: 'BLOCK',
         data: '__DATA__'
       };
       
@@ -120,8 +104,8 @@ describe('scenario-code utilities', () => {
     it('should return invalid when data.json contains invalid JSON', async () => {
       const metadata = {
         index: '1',
-        name: 'Test Logic',
-        type: 'LOGIC',
+        name: 'Test Block',
+        type: 'BLOCK',
         data: '__DATA__'
       };
       
@@ -202,24 +186,21 @@ describe('scenario-code utilities', () => {
       const scenarioDir = resolve(tempDir, 'scenario-1');
       await extractScenarioCode(scenarioData, scenarioDir);
       
-      // Check that all files were created
+      // Check that files were created (no data.json for LOGIC scenarios)
       const backupExists = await fs.access(resolve(scenarioDir, 'backup.json')).then(() => true).catch(() => false);
       const dataExists = await fs.access(resolve(scenarioDir, 'data.json')).then(() => true).catch(() => false);
       const metadataExists = await fs.access(resolve(scenarioDir, 'metadata.json')).then(() => true).catch(() => false);
       const codeExists = await fs.access(resolve(scenarioDir, 'code.js')).then(() => true).catch(() => false);
       
       expect(backupExists).toBe(true);
-      expect(dataExists).toBe(true);
+      expect(dataExists).toBe(false); // No data.json for LOGIC scenarios
       expect(metadataExists).toBe(true);
       expect(codeExists).toBe(true);
       
       // Check content of files
       const metadata = JSON.parse(await fs.readFile(resolve(scenarioDir, 'metadata.json'), 'utf8'));
-      expect(metadata.data).toBe('__DATA__');
+      expect(metadata.data).toBe('__CODE__'); // Legacy format for LOGIC scenarios
       expect(metadata.name).toBe('Test Logic');
-      
-      const dataContent = await fs.readFile(resolve(scenarioDir, 'data.json'), 'utf8');
-      expect(dataContent).toBe('console.log("Hello World");');
       
       const codeContent = await fs.readFile(resolve(scenarioDir, 'code.js'), 'utf8');
       expect(codeContent).toBe('console.log("Hello World");');
@@ -279,26 +260,6 @@ describe('scenario-code utilities', () => {
   });
 
   describe('injectScenarioCode', () => {
-    it('should inject LOGIC scenario with new format', async () => {
-      const scenarioDir = resolve(tempDir, 'scenario-1');
-      await fs.mkdir(scenarioDir, { recursive: true });
-      
-      const metadata = {
-        index: '1',
-        name: 'Test Logic',
-        type: 'LOGIC',
-        data: '__DATA__'
-      };
-      
-      await fs.writeFile(resolve(scenarioDir, 'metadata.json'), JSON.stringify(metadata, null, 2));
-      await fs.writeFile(resolve(scenarioDir, 'data.json'), '"console.log(\\"injected code\\");"');
-      
-      const result = await injectScenarioCode(scenarioDir);
-      
-      expect(result.data).toBe('"console.log(\\"injected code\\");"');
-      expect(result.name).toBe('Test Logic');
-      expect(result.type).toBe('LOGIC');
-    });
 
     it('should inject LOGIC scenario with legacy format', async () => {
       const scenarioDir = resolve(tempDir, 'scenario-1');
@@ -360,14 +321,14 @@ describe('scenario-code utilities', () => {
       await expect(injectScenarioCode(scenarioDir)).rejects.toThrow('Failed to read metadata.json');
     });
 
-    it('should throw error for missing data.json in new format', async () => {
+    it('should throw error for missing data.json in BLOCK format', async () => {
       const scenarioDir = resolve(tempDir, 'scenario-1');
       await fs.mkdir(scenarioDir, { recursive: true });
       
       const metadata = {
         index: '1',
-        name: 'Test',
-        type: 'LOGIC',
+        name: 'Test Block',
+        type: 'BLOCK',
         data: '__DATA__'
       };
       
@@ -502,18 +463,18 @@ describe('scenario-code utilities', () => {
       
       await restoreFromRemoteData(scenarioDir, originalRemoteData);
       
-      // Check that the directory was properly restored
+      // Check that the directory was properly restored (no data.json for LOGIC scenarios)
       const metadataExists = await fs.access(resolve(scenarioDir, 'metadata.json')).then(() => true).catch(() => false);
       const dataExists = await fs.access(resolve(scenarioDir, 'data.json')).then(() => true).catch(() => false);
       const codeExists = await fs.access(resolve(scenarioDir, 'code.js')).then(() => true).catch(() => false);
       
       expect(metadataExists).toBe(true);
-      expect(dataExists).toBe(true);
+      expect(dataExists).toBe(false); // No data.json for LOGIC scenarios
       expect(codeExists).toBe(true);
       
       const metadata = JSON.parse(await fs.readFile(resolve(scenarioDir, 'metadata.json'), 'utf8'));
       expect(metadata.name).toBe('Original Logic');
-      expect(metadata.data).toBe('__DATA__');
+      expect(metadata.data).toBe('__CODE__'); // LOGIC scenarios use __CODE__ placeholder
       
       const codeContent = await fs.readFile(resolve(scenarioDir, 'code.js'), 'utf8');
       expect(codeContent).toBe('console.log("original code");');

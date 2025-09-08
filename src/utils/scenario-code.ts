@@ -69,20 +69,27 @@ export async function extractScenarioCode(scenarioData: ScenarioData, scenarioDi
   const backupJsonPath = resolve(scenarioDir, 'backup.json');
   await fs.writeFile(backupJsonPath, JSON.stringify(scenarioData, null, 2));
 
-  // Extract data property to separate file
-  const dataJsonPath = resolve(scenarioDir, 'data.json');
-  await fs.writeFile(dataJsonPath, scenarioData.data);
-
-  // Create metadata without the data field
-  const metadata = { ...scenarioData };
-  metadata.data = '__DATA__'; // Placeholder
-
-  const metadataPath = resolve(scenarioDir, 'metadata.json');
-  await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2));
-
   if (scenarioData.type === 'BLOCK') {
+    // For BLOCK scenarios, extract data to separate file
+    const dataJsonPath = resolve(scenarioDir, 'data.json');
+    await fs.writeFile(dataJsonPath, scenarioData.data);
+
+    // Create metadata without the data field
+    const metadata = { ...scenarioData };
+    metadata.data = '__DATA__'; // Placeholder
+
+    const metadataPath = resolve(scenarioDir, 'metadata.json');
+    await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2));
+
     await extractBlockScenario(scenarioData, scenarioDir);
   } else if (scenarioData.type === 'LOGIC' || scenarioData.type === 'GLOBAL') {
+    // For LOGIC/GLOBAL scenarios, use legacy format with __CODE__ placeholder
+    const metadata = { ...scenarioData };
+    metadata.data = '__CODE__'; // Placeholder
+
+    const metadataPath = resolve(scenarioDir, 'metadata.json');
+    await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2));
+
     await extractLogicOrGlobalScenario(scenarioData, scenarioDir);
   } else {
     throw new Error(`Unsupported scenario type: ${scenarioData.type}`);
