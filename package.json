@@ -1,6 +1,6 @@
 {
   "name": "spruthub-cli",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "CLI tool for managing Spruthub smart home devices",
   "type": "module",
   "main": "dist/cli.js",
