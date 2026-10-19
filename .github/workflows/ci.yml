@@ -7,7 +7,7 @@ permissions:
   contents: read
 env:
   # Immutable reviewed client source; no PR-supplied cross-repository ref.
-  PAIRED_CLIENT_REF: 6cc465d5d8e059d6b8b76c02d1c2c099be953358
+  PAIRED_CLIENT_REF: 088061cd9a7e8c975e4e6102f44c1d5f8d9cfc6f
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -106,8 +106,8 @@ jobs:
       - name: Verify musl, Node 24 and unprivileged runtime
         run: |
           docker run --rm --platform linux/amd64 --read-only --network none --entrypoint node spruthub-log-collector:ci -e 'const a=require("node:assert/strict"),f=require("node:fs");a.equal(process.versions.node.split(".")[0],"24");a.equal(process.arch,"x64");a.equal(process.getuid(),1000);a.ok(f.existsSync("/lib/ld-musl-x86_64.so.1"));console.log("Node",process.version,"Alpine",f.readFileSync("/etc/alpine-release","utf8").trim(),"UID",process.getuid(),"musl PASS");'
-      - name: Seven network-isolated runtime and injection tests
+      - name: Seven network-isolated runtime and credentials-file tests
         run: |
-          docker run --rm --platform linux/amd64 --read-only --network none --memory 192m --tmpfs /tmp:rw,noexec,nosuid,size=16m -v "$GITHUB_WORKSPACE/spruthub-cli/tests/collector:/app/tests/collector:ro" --entrypoint node spruthub-log-collector:ci --test /app/tests/collector/cli-smoke.mjs /app/tests/collector/output.test.mjs /app/tests/collector/credentials.test.mjs
+          docker run --rm --platform linux/amd64 --read-only --network none --memory 192m --tmpfs /tmp:rw,noexec,nosuid,size=16m -v "$GITHUB_WORKSPACE/spruthub-cli/tests/collector:/app/tests/collector:ro" --entrypoint node spruthub-log-collector:ci --test /app/tests/collector/cli-smoke.mjs /app/tests/collector/output.test.mjs /app/tests/collector/credentials-file.test.mjs
       - name: Record unpacked image size
         run: docker image inspect spruthub-log-collector:ci --format 'Image {{.Id}} — {{.Architecture}} — {{.Size}} bytes' >> "$GITHUB_STEP_SUMMARY"

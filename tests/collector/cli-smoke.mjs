@@ -38,7 +38,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
       });
     });
     const credentials = join(dir, 'credentials.json');
-    await writeFile(credentials, JSON.stringify({ wsUrl: `ws://127.0.0.1:${server.address().port}`, email: 'EMAIL_SECRET', password: 'PASSWORD_SECRET', serial: 'MOCK' }), { mode: 0o600 });
+    await writeFile(credentials, JSON.stringify({ wsUrl: `ws://127.0.0.1:${server.address().port}`, email: 'EMAIL_SECRET', password: 'PASSWORD_SECRET', serial: 'MOCK' }), { mode: 0o400 });
     const child = spawn(process.execPath, ['dist/bin/spruthub-cli.js', '--verbose', '--format', 'json', 'log', 'list', '--follow', '--lines', '2'], {
       cwd: new URL('../..', import.meta.url), env: { ...process.env, SPRUTHUB_CREDENTIALS_FILE: credentials }, stdio: ['ignore', 'pipe', 'pipe']
     });

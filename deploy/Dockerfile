@@ -22,7 +22,6 @@ COPY spruthub-cli/tsconfig.json spruthub-cli/jest.config.cjs spruthub-cli/eslint
 COPY spruthub-cli/src ./src
 COPY spruthub-cli/bin ./bin
 COPY spruthub-cli/tests ./tests
-COPY spruthub-cli/deploy/prepare-credentials.mjs ./deploy/prepare-credentials.mjs
 RUN npm run build && npm run lint && npm test -- --runInBand --watchman=false && node --test tests/collector/*.mjs
 
 FROM node:24.22.0-alpine3.24@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS dependencies
@@ -38,7 +37,6 @@ WORKDIR /app
 ENV NODE_ENV=production SPRUTHUB_CREDENTIALS_FILE=/var/run/spruthub/credentials.json
 COPY --from=build --chown=node:node /cli/package.json ./
 COPY --from=build --chown=node:node /cli/dist ./dist
-COPY --from=build --chown=node:node /cli/deploy/prepare-credentials.mjs ./prepare-credentials.mjs
 COPY --from=dependencies --chown=node:node /cli/node_modules ./node_modules
 USER node
 ENTRYPOINT ["node", "dist/bin/spruthub-cli.js"]

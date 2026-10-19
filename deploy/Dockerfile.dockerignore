@@ -12,6 +12,3 @@
 !spruthub-client/jest.config.js
 !spruthub-client/src/**
 !spruthub-client/tests/**
-
-!spruthub-cli/deploy
-!spruthub-cli/deploy/prepare-credentials.mjs

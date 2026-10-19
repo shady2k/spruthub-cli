@@ -17,7 +17,7 @@ and CLI startup do not need native keytar or an interactive keychain.
 2. **Required paired-source + clean archive collector** checks out one immutable
    reviewed client commit, recorded in the workflow and summary. No arbitrary
    pull-request head is evaluated with secrets. Both projects use their lockfiles.
-   Source tests include injection/shutdown/backpressure. Then both tarballs are
+   Source tests include credentials-file validation/shutdown/backpressure. Then both tarballs are
    installed together into an empty consumer. The smoke test asserts that CLI
    resolves the exact paired client and that watchLogs exists, then performs fake
    WebSocket JSONL/reconnect/replay/SIGINT/SIGTERM/output tests. It never silently
@@ -39,7 +39,7 @@ The pin is immutable, not an automatically followed feature branch.
 
 The archive allowlist and content patterns reject env/credential/workspace/private
 artifacts. Checks use mock credentials on loopback; they never contact a hub,
-OpenBao, registry or production cluster. No job publishes, merges, tags or deploys.
+a credential provider, registry or production cluster. No job publishes, merges, tags or deploys.
 
 ## Alpine container
 

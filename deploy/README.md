@@ -1,120 +1,66 @@
-# Continuous SprutHub log collection
+# Generic collector container
 
-The existing CLI runs as one collector pod. Node stdout is collected by an
-existing Vector DaemonSet and forwarded to VictoriaLogs. The example manifest
-uses Bank-Vaults `vault-env` injection against OpenBao; it does not embed a hub
-endpoint, credentials, registry credentials or an installation-specific KV path.
-Replace all `example.invalid` endpoints and the example KV path after review.
+The CLI can collect continuous JSONL on stdout. This directory contains only a
+generic paired-source container build; installation-specific orchestration,
+credential provisioning, network policies and manifests belong outside this repo.
 
 ## Build and verify
 
-The build context must contain sibling `spruthub-cli/` and `spruthub-client/`
-checkouts containing the collector changes. No npm publication is required.
+The build context contains sibling `spruthub-cli/` and `spruthub-client/`
+checkouts with the collector changes. No npm publication is required.
 
 ```sh
-npm run lint --prefix spruthub-client
-npm test --prefix spruthub-client -- --runInBand --coverage=false
-npm run build --prefix spruthub-cli
-npm run lint --prefix spruthub-cli
-npm test --prefix spruthub-cli -- --runInBand
-# CLI collector tests require the local client implementation. For local use,
-# pack it into a temporary directory and install/link that package in the CLI.
-npm run test:collector --prefix spruthub-cli
-
 docker build --platform linux/amd64 -f spruthub-cli/deploy/Dockerfile \
   -t spruthub-log-collector:review .
 ```
 
-Docker uses each project's locked dependencies, tests both sources and copies the
-local client with its own production dependencies. The final image is a non-root
-Node 24 Alpine process using file credentials. All stages pin the official
-`node:24.22.0-alpine3.24` image by its immutable index digest. The collector uses musl-compatible JavaScript
-dependencies. Native keytar is
-loaded lazily by interactive profiles, is not built in this image, and is not
-required for the collector; interactive keychain login is outside this image
-contract. The Docker context allowlist
-excludes `.env`, credentials, `.git` and local node_modules. To reproduce a runtime
-smoke test, mount `tests/collector` read-only at `/app/tests/collector`, provide a
-writable `/tmp` tmpfs and run those `.mjs` files with `node --test`; the fake
-WebSocket server works on loopback with `--network none --read-only`.
+All stages pin the official Node 24 Alpine image by version and digest. Each
+project uses locked dependencies; full library/CLI/collector suites run during
+the build. The runtime is musl-based, non-root UID1000 and supports read-only root.
+Native keytar is not built or loaded in file-credential collector mode; interactive
+keychain login is outside the container contract. The context allowlist excludes
+credentials, env files, workspace state and local dependencies.
 
-## JSONL
+Provide a ready JSON file through a read-only mount and set
+`SPRUTHUB_CREDENTIALS_FILE` to its container path (default
+`/var/run/spruthub/credentials.json`). Required string fields are `wsUrl`, `email`,
+`password`, `serial`. The collector only reads this file. How it is produced,
+mounted and rotated is owned by the installation and is not built into this
+image. Never put real values in source control, image layers, command arguments
+or chat. Invalid file data produces a generic error without its contents.
+
+Runtime tests require a writable temporary directory. To test with no external
+network, mount `tests/collector` read-only at `/app/tests/collector`, provide a
+`/tmp` tmpfs, and run the `.mjs` test files with `node --test`. All hub traffic in
+those tests stays on loopback and uses synthetic credentials.
+
+## Stream and lifecycle
 
 ```sh
 spruthub-cli --format json log list --follow --lines 1000
-# Existing spelling `logs list` is also supported.
 ```
 
-`--profile` is forwarded. `--lines` accepts 0..1000; the same bound is fetched on
-reconnect. JSON mode writes one compact record per stdout line even with
-`--verbose`; diagnostics use stderr. Text mode retains the existing hub-entry
-formatter. SIGINT/SIGTERM closes the transport and flushes output. Slow stdout is
-awaited; a blocked write fails after 10 seconds. Shutdown has a 15-second deadline
-and the pod grace period is 30 seconds. The bounded queue explicitly reports
-output overflow rather than silently discarding records.
+`logs list` remains an alias; `--profile` is forwarded. JSON mode emits one compact
+record per stdout line even with `--verbose`. Diagnostics use stderr. Text mode
+retains the hub-entry formatter. Hub records preserve original millisecond time,
+level, path and message, plus receive time, session and sequence. Collector
+lifecycle/gap records are distinct from hub records.
 
-Hub records contain `type: hub_log`, `source: live|history`, the original Unix
-millisecond `time`, `level`, `path`, `message`, ISO `receivedAt`, `session` and
-monotonic `sequence`. `lifecycle` and `gap` records describe collector state.
-History is marked `replay: true, possibleDuplicate: true`: there is no content
-hash deduplication, because identical messages may be distinct real events.
-Live/history interleaving is preserved. There is no cursor, complete replay,
-exactly-once guarantee or acknowledgement from VictoriaLogs. Treat hub message
-text as potentially sensitive even though auth payloads are never logged.
+Subscribe happens before bounded history recovery. Identical events are retained;
+history is explicitly replay with possible duplicates. There is no cursor, complete
+replay, exactly-once promise or downstream storage acknowledgement. Slow stdout is
+awaited; bounded queue overflow is reported. SIGINT/SIGTERM flush output and close
+the transport. Ping/pong supplies connection failure evidence; log silence does not.
 
-A missing subscribe ACK closes that transport before retrying, preventing an
-unknown old subscription from being reused. Generation checks prevent old auth
-responses from restoring cleared tokens. Concurrent authentication and shutdown
-calls share their respective promises. Shutdown always clears callbacks, pending
-requests and tokens even when unsubscribe is rejected or times out. WebSocket
-control ping/pong supplies failure evidence; log silence never triggers reconnect.
+Run one collector per hub. Installation-owned rollout configuration must stop the
+old instance before starting its replacement; no deployment backend is prescribed.
+An existing stdout log pipeline can ingest JSONL without a direct collector sink.
+Retention, buffering and indexed time mapping are installation decisions.
 
-## OpenBao injection
+## Releases
 
-Create a KV v2 secret through the approved OpenBao workflow with string fields
-`WS_URL`, `EMAIL`, `PASSWORD`, `SERIAL`. Never put their values in manifests, build
-context, image, source control, chat, command arguments or shell history.
-
-The example uses namespace `logging`, ServiceAccount/Deployment
-`spruthub-log-collector` and OpenBao Kubernetes auth role
-`k8s` as an example of an existing shared role. Reuse the approved installation
-role rather than creating a new one. Review its actual bindings and policy scope:
-a shared role may grant access to multiple secrets, not just this collector.
-A narrower role is an optional separately approved change. TLS verification must
-remain enabled.
-
-Bank-Vaults injects four values into the `prepare-credentials` init container.
-The helper serializes them using JSON escaping into an atomic owner-only file in
-a memory `emptyDir`. The collector mounts that volume read-only and reads
-`/var/run/spruthub/credentials.json` through `SPRUTHUB_CREDENTIALS_FILE`.
-Unresolved injection references fail closed without printing values. The init
-container receives a service-account JWT for OpenBao login; an empty volume hides
-the JWT mount from the main collector. No Kubernetes RoleBinding is required by
-the collector. Rotation requires a controlled pod restart to reload credentials.
-
-The init container needs DNS and HTTPS to OpenBao. The collector needs only the
-agreed hub WebSocket endpoint/port. Nodes need registry image-pull access. There
-is no inbound service, ingress or direct collector connection to Vector or
-VictoriaLogs. Network policies and OpenBao role/policy creation are separate
-reviewed deployment actions, not actions performed by these files.
-
-## Rollout and Vector
-
-Use one replica and `Recreate`; replace `:review-required` with a verified image
-digest before deployment. Do not scale or launch another collector. Recreate
-prevents overlap during normal rollouts; it is not distributed fencing after a
-force deletion or node partition. Expect a collection gap during replacement.
-
-An existing Vector `kubernetes_logs` source that parses stdout JSON into `.log`
-can ingest this stream without a new collector sink. Confirm its include/exclude
-rules and actual field names. If its VictoriaLogs time header uses Kubernetes
-`timestamp`, original hub time remains queryable separately as `log.time`.
-Persistent Vector checkpoints do not prove a persistent sink queue: inspect the
-sink's explicit buffer configuration. Capacity/retention, disk buffering and
-changing the indexed time field require separate infrastructure review.
-
-## Release safety
-
-The release workflows publish npm packages only on pushed tags matching `v*`.
-A feature branch push, PR or ordinary merge does not trigger those workflows.
-Do not create a release tag or run `npm publish` as part of container preparation.
+The paired source build uses an unreleased client API. A standalone npm CLI
+release must first consume a released client containing `watchLogs`, update its
+dependency/lock and pass strict clean-install collector tests. CI's paired smoke
+is not a substitute for that release gate. Tag-triggered publishing is separate;
+container preparation never publishes, tags, merges or deploys.
