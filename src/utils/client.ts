@@ -11,7 +11,7 @@ class SprutHubClientWrapper {
   async getClient(profileName?: string): Promise<any> {
     if (this.client && this.isConnected) {
       if (process.env.VERBOSE) {
-        console.log(chalk.cyan(`[DEBUG] Reusing existing connection`));
+        console.error(chalk.cyan(`[DEBUG] Reusing existing connection`));
       }
       return this.client;
     }
@@ -67,8 +67,8 @@ class SprutHubClientWrapper {
       if (isVerbose) {
         const connTime = Math.round((performance.now() - connStart) * 100) / 100;
         spinner.succeed(`Connected to Spruthub device (${connTime}ms)`);
-        console.log(chalk.cyan(`[DEBUG] Connection established successfully`));
-        console.log(chalk.cyan(`[DEBUG] Client ready for API calls`));
+        console.error(chalk.cyan(`[DEBUG] Connection established successfully`));
+        console.error(chalk.cyan(`[DEBUG] Client ready for API calls`));
       } else {
         spinner.succeed('Connected to Spruthub device');
       }
@@ -77,6 +77,7 @@ class SprutHubClientWrapper {
       
     } catch (error: any) {
       spinner.fail('Failed to connect to Spruthub device');
+      await this.disconnect();
       
       if (error.message.includes('not found')) {
         throw new Error(`Authentication failed. Please check your credentials and run "spruthub-cli login" again.\nError: ${error.message}`);
@@ -123,7 +124,7 @@ class SprutHubClientWrapper {
 
     if (isVerbose) {
       const connectionTime = Math.round((performance.now() - connectionStart) * 100) / 100;
-      console.log(chalk.cyan(`[DEBUG] Connection ready in ${connectionTime}ms`));
+      console.error(chalk.cyan(`[DEBUG] Connection ready in ${connectionTime}ms`));
       console.log(chalk.cyan(`[DEBUG] Raw request to spruthub-client:`));
       console.log(chalk.cyan(`[DEBUG]   Method: ${methodName}`));
       console.log(chalk.cyan(`[DEBUG]   Params:`), JSON.stringify(params, null, 2));

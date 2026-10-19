@@ -43,7 +43,8 @@ export function addMethodCommand(parentCmd: Command, commandName: string, method
 
   cmd.action(async (...args: any[]) => {
     const startTime = performance.now();
-    const isVerbose = process.env.VERBOSE;
+    const following = methodName === 'log.list' && !!args[args.length - 2].follow;
+    const isVerbose = process.env.VERBOSE && !following;
     
     if (isVerbose) {
       console.time(`${methodName}-total`);
@@ -86,7 +87,8 @@ export function addMethodCommand(parentCmd: Command, commandName: string, method
         await streamer.startStreaming({
           scenarioId,
           count,
-          verbose: !!isVerbose
+          verbose: !!isVerbose,
+          profile: options.profile
         });
         
         // Exit gracefully - streaming handles its own lifecycle
@@ -171,13 +173,13 @@ export function addMethodCommand(parentCmd: Command, commandName: string, method
       const responseTime = Math.round((endTime - startTime) * 100) / 100;
       
       console.error(chalk.red(`Failed to execute ${methodName}:`), error.message);
-      console.log(chalk.gray(`⏱️  Failed after: ${responseTime}ms`));
+      if (!following) console.log(chalk.gray(`⏱️  Failed after: ${responseTime}ms`));
       
       if (isVerbose) {
         console.error(error.stack);
         console.timeEnd(`${methodName}-total`);
       }
-      process.exit(1);
+      process.exitCode = 1;
     } finally {
       // Clean up connection
       await client.disconnect();

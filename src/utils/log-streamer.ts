@@ -1,204 +1,68 @@
-import chalk from 'chalk';
+import { Writable } from 'node:stream';
 import { OutputFormatter } from './formatter.js';
 import client from './client.js';
-import logger from './logger.js';
 
 export interface LogStreamOptions {
   scenarioId?: string;
   count?: number;
   verbose?: boolean;
+  profile?: string;
 }
 
-export interface LogEntry {
-  subscriptionId: string;
-  timestamp: number;
-  level: string;
-  component: string;
-  message: string;
-  raw: any;
+// One outstanding write, bounded by a timeout; watcher bounds incoming records.
+export function writeLine(output: Writable, line: string, timeoutMs = 10000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => finish(new Error('Log output timeout')), timeoutMs);
+    const finish = (error?: Error | null): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      // Streams may emit error just after invoking the write callback.
+      setImmediate(() => output.off('error', onError));
+      if (error) reject(new Error('Log output failed')); else resolve();
+    };
+    const onError = (): void => finish(new Error('Log output failed'));
+    output.once('error', onError);
+    output.write(line + '\n', finish);
+  });
 }
 
 export class LogStreamer {
-  private formatter: OutputFormatter;
-  private subscriptionId?: string;
-  private isStreaming = false;
-  private scenarioFilter?: RegExp;
-
-  constructor() {
-    this.formatter = new OutputFormatter();
-  }
-
   async startStreaming(options: LogStreamOptions = {}): Promise<void> {
-    const { scenarioId, count = 20, verbose = false } = options;
-
-    try {
-      // Setup scenario filter if provided
-      if (scenarioId) {
-        this.scenarioFilter = new RegExp(`Сценарий ${scenarioId}\\b`);
+    const { scenarioId, count = 20, profile } = options;
+    if (!Number.isInteger(count) || count < 0 || count > 1000) throw new Error('lines must be 0..1000');
+    const formatter = new OutputFormatter();
+    const json = process.env.OUTPUT_FORMAT === 'json';
+    const sprut = await client.getClient(profile);
+    const watcher = sprut.watchLogs(async (record: any) => {
+      if (record.type === 'hub_log' && scenarioId &&
+          !new RegExp(`Сценарий ${scenarioId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\d)`).test(record.message)) return;
+      if (json) {
+        await writeLine(process.stdout, JSON.stringify(record));
+      } else if (record.type === 'hub_log') {
+        await writeLine(process.stdout, formatter.formatLogEntry({ timestamp: record.time,
+          time: record.time, level: record.level, component: record.path, path: record.path, message: record.message }));
+      } else {
+        await writeLine(process.stderr, `[log collector] ${record.state || record.reason}`);
       }
-
-      // 1. Get initial logs if count > 0
-      if (count > 0) {
-        await this.getInitialLogs(count, scenarioId, verbose);
-      }
-
-      // 2. Setup signal handlers for graceful shutdown
-      this.setupSignalHandlers();
-
-      // 3. Start real-time streaming
-      console.log(chalk.gray('--- Following live logs (Press Ctrl+C to exit) ---'));
-      await this.subscribeToLogs(verbose);
-
-    } catch (error: any) {
-      console.error(chalk.red('Failed to start log streaming:'), error.message);
-      await this.cleanup();
-      throw error;
-    }
-  }
-
-  private async getInitialLogs(count: number, scenarioId?: string, verbose = false): Promise<void> {
-    if (verbose) {
-      console.log(chalk.cyan(`[DEBUG] Fetching last ${count} logs...`));
-    }
-
-    try {
-      const result = await client.callMethod('log.list', { count });
-      
-      if (result.isSuccess && result.data) {
-        // Apply scenario filtering if needed
-        let logs = this.extractLogsFromResult(result);
-        
-        if (scenarioId && this.scenarioFilter) {
-          logs = logs.filter(log => 
-            typeof log === 'object' && 
-            log.message && 
-            this.scenarioFilter!.test(log.message)
-          );
-        }
-
-        if (logs.length > 0) {
-          // Reverse logs for chronological order (oldest first) when following
-          // This makes the transition to live streaming more natural
-          const reversedLogs = [...logs].reverse();
-          console.log(this.formatter.format({ isSuccess: true, data: reversedLogs }));
-        } else if (scenarioId) {
-          console.log(chalk.gray(`No recent logs found for scenario ${scenarioId}`));
-        } else {
-          console.log(chalk.gray('No recent logs found'));
-        }
-      }
-    } catch (error: any) {
-      logger.warn('Failed to fetch initial logs:', error.message);
-    }
-  }
-
-  private async subscribeToLogs(verbose = false): Promise<void> {
-    if (verbose) {
-      console.log(chalk.cyan('[DEBUG] Starting log subscription...'));
-    }
-
-    const sprutClient = await client.getClient();
-    
-    const subscription = await sprutClient.subscribeLogs((logEntry: LogEntry) => {
-      this.handleLogEntry(logEntry, verbose);
-    });
-
-    if (subscription.isSuccess) {
-      this.subscriptionId = subscription.data.uuid;
-      this.isStreaming = true;
-      
-      if (verbose) {
-        console.log(chalk.cyan(`[DEBUG] Subscribed with ID: ${this.subscriptionId}`));
-      }
-
-      // Keep the process alive
-      await this.keepAlive();
-    } else {
-      throw new Error(`Failed to subscribe to logs: ${subscription.message}`);
-    }
-  }
-
-  private handleLogEntry(logEntry: LogEntry, verbose = false): void {
-    // Apply scenario filtering if configured
-    if (this.scenarioFilter && !this.scenarioFilter.test(logEntry.message)) {
-      return;
-    }
-
-    // Format and display the log entry
-    const formattedEntry = this.formatter.formatLogEntry({
-      timestamp: logEntry.timestamp,
-      level: logEntry.level,
-      component: logEntry.component,
-      message: logEntry.message,
-      ...logEntry.raw
-    });
-
-    if (formattedEntry) {
-      console.log(formattedEntry);
-    }
-
-    if (verbose) {
-      console.log(chalk.cyan(`[DEBUG] Received log entry: ${logEntry.subscriptionId}`));
-    }
-  }
-
-  private extractLogsFromResult(result: any): any[] {
-    let logs: any[] = [];
-    
-    if (Array.isArray(result.data)) {
-      logs = result.data;
-    } else if (typeof result.data === 'object' && !Array.isArray(result.data)) {
-      const keys = Object.keys(result.data);
-      if (keys.length === 1 && Array.isArray(result.data[keys[0]])) {
-        logs = result.data[keys[0]];
-      }
-    }
-    
-    return logs;
-  }
-
-  private async keepAlive(): Promise<void> {
-    return new Promise((resolve) => {
-      // The process will be kept alive by the WebSocket connection
-      // and terminated by signal handlers
-      process.on('exit', () => {
-        resolve();
-      });
-    });
-  }
-
-  private setupSignalHandlers(): void {
-    const cleanup = async () => {
-      console.log(chalk.gray('\nShutting down log streaming...'));
-      try {
-        await this.cleanup();
-        logger.debug('Cleanup completed, exiting...');
-      } catch (error: any) {
-        logger.error('Cleanup failed:', error.message);
-      }
-      // Give a small delay to ensure logs are flushed
-      setTimeout(() => process.exit(0), 100);
+    }, { count });
+    let stopping = false;
+    const stop = (): void => {
+      if (stopping) return;
+      stopping = true;
+      const deadline = setTimeout(() => process.exit(1), 15000);
+      watcher.stop().finally(() => clearTimeout(deadline)).catch(() => { process.exitCode = 1; });
     };
-
-    process.on('SIGINT', cleanup);
-    process.on('SIGTERM', cleanup);
-  }
-
-  private async cleanup(): Promise<void> {
-    if (this.isStreaming && this.subscriptionId) {
-      try {
-        logger.debug(`Cleaning up subscription: ${this.subscriptionId}`);
-        const sprutClient = await client.getClient();
-        await sprutClient.unsubscribeLogs(this.subscriptionId);
-        logger.debug('Log subscription cleaned up successfully');
-      } catch (error: any) {
-        logger.warn('Failed to cleanup log subscription:', error.message);
-      }
-    } else {
-      logger.debug('No active subscription to cleanup');
+    process.on('SIGINT', stop);
+    process.on('SIGTERM', stop);
+    try {
+      // Initial auth/transport failure is retried by the watcher too.
+      await watcher.done;
+    } finally {
+      process.off('SIGINT', stop);
+      process.off('SIGTERM', stop);
+      await watcher.stop();
     }
-    
-    this.isStreaming = false;
-    this.subscriptionId = undefined;
   }
 }
