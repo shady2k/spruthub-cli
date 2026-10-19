@@ -469,3 +469,6 @@ MIT
 - [GitHub Issues](https://github.com/shady2k/spruthub-cli/issues)
 - [Sprut.hub Documentation](https://spruthub.ru/)
 - [spruthub-client Library](https://github.com/shady2k/spruthub-client)
+Continuous JSONL log collection and generic container usage are
+explained in [deploy/README.md](deploy/README.md). Use
+`spruthub-cli --format json log list --follow --lines 1000` (also `logs list`).

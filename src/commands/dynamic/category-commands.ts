@@ -13,6 +13,8 @@ export function addCategoryCommands(program: Command, category: string): void {
     .command(category)
     .description(`${category.charAt(0).toUpperCase() + category.slice(1)} management commands`);
 
+  if (category === 'logs') categoryCmd.alias('log');
+
   Object.keys(methods).forEach(methodName => {
     const method = methods[methodName];
     const methodParts = methodName.split('.');

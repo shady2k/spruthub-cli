@@ -1,0 +1,117 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main, 'codex/**']
+permissions:
+  contents: read
+env:
+  # Immutable reviewed client source; no PR-supplied cross-repository ref.
+  PAIRED_CLIENT_REF: 3ec6643c6e1bfcc36b1ddd141f51e1b286a0698d
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  unit:
+    name: Unit + published-dependency install/startup / Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22', '24']
+    outputs:
+      standalone_ready: ${{ steps.package.outputs.standalone_ready }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node --test .github/scripts/release-gates.test.cjs
+      - run: npm run lint
+      - run: npm test -- --runInBand
+      - run: npm run build
+      - id: package
+        run: node .github/scripts/package-smoke.cjs
+      - name: Verify strict clean-install refusal for the unreleased dependency
+        if: steps.package.outputs.standalone_ready == 'false'
+        run: node .github/scripts/expect-standalone-block.cjs
+  paired:
+    name: Required paired-source + clean archive collector
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: shady2k/spruthub-client
+          ref: ${{ env.PAIRED_CLIENT_REF }}
+          path: .paired-client
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Record exact paired dependency
+        run: |
+          test "$(git -C .paired-client rev-parse HEAD)" = "$PAIRED_CLIENT_REF"
+          echo "Paired client commit: $PAIRED_CLIENT_REF" >> "$GITHUB_STEP_SUMMARY"
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm ci --prefix .paired-client --ignore-scripts --no-audit --no-fund
+      - name: Use exact source client for source collector tests
+        run: |
+          rm -rf node_modules/spruthub-client
+          ln -s ../.paired-client node_modules/spruthub-client
+          node -e "require('node:assert/strict').equal(typeof require('spruthub-client').Sprut.prototype.watchLogs, 'function')"
+      - run: npm run test:collector
+      - name: Pack both projects and test a clean installed pair
+        run: node .github/scripts/package-smoke.cjs --client-source .paired-client
+  standalone-release:
+    name: Standalone collector release gate (skipped means unreleased dependency)
+    needs: unit
+    if: needs.unit.outputs.standalone_ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build
+      # Strict: no override, no skip, fail if published dependency lacks watchLogs.
+      - run: node .github/scripts/package-smoke.cjs --strict-standalone
+  container:
+    name: Node 24 Alpine amd64 container and isolated runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: spruthub-cli
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: shady2k/spruthub-client
+          ref: ${{ env.PAIRED_CLIENT_REF }}
+          path: spruthub-client
+          persist-credentials: false
+      - name: Build pinned Alpine image and run full suites
+        run: |
+          test "$(git -C spruthub-client rev-parse HEAD)" = "$PAIRED_CLIENT_REF"
+          docker build --platform linux/amd64 -f spruthub-cli/deploy/Dockerfile -t spruthub-log-collector:ci .
+      - name: Verify musl, Node 24 and unprivileged runtime
+        run: |
+          docker run --rm --platform linux/amd64 --read-only --network none --entrypoint node spruthub-log-collector:ci -e 'const a=require("node:assert/strict"),f=require("node:fs");a.equal(process.versions.node.split(".")[0],"24");a.equal(process.arch,"x64");a.equal(process.getuid(),1000);a.ok(f.existsSync("/lib/ld-musl-x86_64.so.1"));console.log("Node",process.version,"Alpine",f.readFileSync("/etc/alpine-release","utf8").trim(),"UID",process.getuid(),"musl PASS");'
+      - name: Seven network-isolated runtime and credentials-file tests
+        run: |
+          docker run --rm --platform linux/amd64 --read-only --network none --memory 192m --tmpfs /tmp:rw,noexec,nosuid,size=16m -v "$GITHUB_WORKSPACE/spruthub-cli/tests/collector:/app/tests/collector:ro" --entrypoint node spruthub-log-collector:ci --test /app/tests/collector/cli-smoke.mjs /app/tests/collector/output.test.mjs /app/tests/collector/credentials-file.test.mjs
+      - name: Record unpacked image size
+        run: docker image inspect spruthub-log-collector:ci --format 'Image {{.Id}} — {{.Architecture}} — {{.Size}} bytes' >> "$GITHUB_STEP_SUMMARY"

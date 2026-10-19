@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { loadCommands } from './commands/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -10,7 +10,8 @@ const __dirname = dirname(__filename);
 
 // Load package.json dynamically to avoid import assertion issues
 // When running with tsx, __dirname points to src/, so we need to go up one level to find package.json
-const packagePath = resolve(__dirname, '..', 'package.json');
+const sourcePackagePath = resolve(__dirname, '..', 'package.json');
+const packagePath = existsSync(sourcePackagePath) ? sourcePackagePath : resolve(__dirname, '../..', 'package.json');
 const packageInfo = JSON.parse(readFileSync(packagePath, 'utf8'));
 
 

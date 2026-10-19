@@ -1,0 +1,14 @@
+**
+!spruthub-cli
+!spruthub-cli/package*.json
+!spruthub-cli/tsconfig.json
+!spruthub-cli/eslint.config.js
+!spruthub-cli/jest.config.cjs
+!spruthub-cli/src/**
+!spruthub-cli/bin/**
+!spruthub-cli/tests/**
+!spruthub-client
+!spruthub-client/package*.json
+!spruthub-client/jest.config.js
+!spruthub-client/src/**
+!spruthub-client/tests/**

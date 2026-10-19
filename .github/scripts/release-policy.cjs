@@ -1,0 +1,15 @@
+const assert = require('assert');
+
+function assertReleaseTag(refType, refName, version) {
+  assert.strictEqual(refType, 'tag', 'Release requires a tag ref');
+  assert(typeof version === 'string' && version.length > 0, 'Package version is missing');
+  assert.strictEqual(refName, `v${version}`, 'Release tag must exactly match package.json version');
+}
+
+module.exports = { assertReleaseTag };
+
+function assertStandaloneDependency(client, paired) {
+  assert(!paired, 'Strict standalone mode forbids client overrides');
+  assert(typeof client?.Sprut?.prototype?.watchLogs === 'function', 'Standalone collector dependency is not release-ready: watchLogs is missing');
+}
+module.exports.assertStandaloneDependency = assertStandaloneDependency;

@@ -1,7 +1,11 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import keytar from 'keytar';
+const keytar = {
+  getPassword: async (...args: [string, string]) => (await import('keytar')).default.getPassword(...args),
+  setPassword: async (...args: [string, string, string]) => (await import('keytar')).default.setPassword(...args),
+  deletePassword: async (...args: [string, string]) => (await import('keytar')).default.deletePassword(...args)
+};
 import type { ConfigData, ProfileInfo, SprutHubCredentials } from '../types/index.js';
 
 const SERVICE_NAME = 'spruthub-cli';
@@ -87,6 +91,20 @@ class ConfigManager {
   }
 
   async getCredentials(profileName?: string): Promise<SprutHubCredentials> {
+    // Mounted Secret file for headless collectors. Never persist or print its contents.
+    if (process.env.SPRUTHUB_CREDENTIALS_FILE) {
+      try {
+        const credentials = JSON.parse(await fs.readFile(process.env.SPRUTHUB_CREDENTIALS_FILE, 'utf8'));
+        if (!['wsUrl', 'email', 'password', 'serial'].every(key => typeof credentials[key] === 'string' && credentials[key])) {
+          throw new Error();
+        }
+        const url = new URL(credentials.wsUrl);
+        if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password) throw new Error();
+        return credentials;
+      } catch {
+        throw new Error('Unable to load collector credentials file');
+      }
+    }
     const config = await this.loadConfig();
     const targetProfile = profileName || config.currentProfile;
 
