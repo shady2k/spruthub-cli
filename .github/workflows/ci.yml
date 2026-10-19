@@ -7,7 +7,7 @@ permissions:
   contents: read
 env:
   # Immutable reviewed client source; no PR-supplied cross-repository ref.
-  PAIRED_CLIENT_REF: 7d2cd1edec552008923699bf27582dbe385bc3b5
+  PAIRED_CLIENT_REF: 3ec6643c6e1bfcc36b1ddd141f51e1b286a0698d
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
