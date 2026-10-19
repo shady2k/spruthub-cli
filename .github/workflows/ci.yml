@@ -7,7 +7,7 @@ permissions:
   contents: read
 env:
   # Immutable reviewed client source; no PR-supplied cross-repository ref.
-  PAIRED_CLIENT_REF: 088061cd9a7e8c975e4e6102f44c1d5f8d9cfc6f
+  PAIRED_CLIENT_REF: 7d2cd1edec552008923699bf27582dbe385bc3b5
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -31,11 +31,15 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node --test .github/scripts/release-gates.test.cjs
       - run: npm run lint
       - run: npm test -- --runInBand
       - run: npm run build
       - id: package
         run: node .github/scripts/package-smoke.cjs
+      - name: Verify strict clean-install refusal for the unreleased dependency
+        if: steps.package.outputs.standalone_ready == 'false'
+        run: node .github/scripts/expect-standalone-block.cjs
   paired:
     name: Required paired-source + clean archive collector
     runs-on: ubuntu-latest

@@ -56,6 +56,11 @@ The existing release workflow triggers only v* tag pushes and uses OIDC trusted
 publishing. Feature push, PR and ordinary merge do not publish. Before a real
 release: publish a versioned client containing watchLogs; update the CLI dependency
 and lock; require the strict standalone gate; bump CLI version; then authorize
-its release. Consider adding a tag/package-version equality check, pinning npm to
-an exact tested version and enforcing the strict package gate in publish.yml.
-Those release changes/publication are not performed by this CI change.
+its release. The tag/package-version check and mandatory strict standalone smoke
+are enforced by publish.yml before npm publish. Strict mode rejects paired
+overrides. Pinning npm to an exact tested version remains an optional follow-up.
+CI tests stable/prerelease matching, mismatches, non-tag refs, capable/missing API
+and forbidden overrides. When the declared dependency lacks the API, CI also runs
+the real strict clean-install command and requires refusal specifically for the
+missing API; unrelated install failures do not count as an expected blocker.
+No release tag or publication is performed by these tests.

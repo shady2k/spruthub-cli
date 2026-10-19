@@ -2,10 +2,12 @@ const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 const { run, pack, scratch, install } = require('./package-utils.cjs');
+const { assertStandaloneDependency } = require('./release-policy.cjs');
 const source = path.resolve(__dirname, '../..');
 const pairedFlag = process.argv.indexOf('--client-source');
 const paired = pairedFlag >= 0 ? path.resolve(process.argv[pairedFlag + 1]) : null;
 const strict = process.argv.includes('--strict-standalone');
+if (strict && paired) assertStandaloneDependency(null, true);
 const temporary = scratch();
 function summary(message) {
   console.log(message);
@@ -34,8 +36,10 @@ try {
   }
   if (!capable) {
     summary('STANDALONE COLLECTOR RELEASE GATE: BLOCKED. The declared published client lacks watchLogs. Only install/startup passed; collector operation is NOT validated. Release client, update CLI dependency/lock, then run --strict-standalone before any CLI release.');
-    if (strict || client) throw new Error('Standalone collector dependency is not release-ready');
+    if (strict) assertStandaloneDependency(require(actualClient), false);
+    if (client) throw new Error('Paired collector dependency is not ready');
   } else {
+    if (strict) assertStandaloneDependency(require(actualClient), false);
     const tests = path.join(cliRoot, 'tests/collector'); fs.mkdirSync(tests, { recursive: true });
     for (const file of ['cli-smoke.mjs', 'output.test.mjs']) {
       fs.copyFileSync(path.join(source, 'tests/collector', file), path.join(tests, file));
