@@ -1,5 +1,5 @@
 # Context: directory containing sibling spruthub-cli/ and spruthub-client/ worktrees.
-FROM node:20-bookworm-slim AS client
+FROM node:24.22.0-alpine3.24@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS client
 WORKDIR /client
 COPY spruthub-client/package*.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
@@ -9,7 +9,7 @@ COPY spruthub-client/jest.config.js ./
 RUN npm test -- --runInBand --coverage=false
 RUN npm prune --omit=dev --ignore-scripts --no-audit --no-fund
 
-FROM node:20-bookworm-slim AS build
+FROM node:24.22.0-alpine3.24@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS build
 WORKDIR /cli
 COPY spruthub-cli/package*.json ./
 # Collector file credentials never load the optional native keytar binding.
@@ -25,7 +25,7 @@ COPY spruthub-cli/tests ./tests
 COPY spruthub-cli/deploy/prepare-credentials.mjs ./deploy/prepare-credentials.mjs
 RUN npm run build && npm run lint && npm test -- --runInBand --watchman=false && node --test tests/collector/*.mjs
 
-FROM node:20-bookworm-slim AS dependencies
+FROM node:24.22.0-alpine3.24@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS dependencies
 WORKDIR /cli
 COPY spruthub-cli/package*.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && rm -rf node_modules/spruthub-client
@@ -33,7 +33,7 @@ COPY --from=client /client/package.json ./node_modules/spruthub-client/package.j
 COPY --from=client /client/src ./node_modules/spruthub-client/src
 COPY --from=client /client/node_modules ./node_modules/spruthub-client/node_modules
 
-FROM node:20-bookworm-slim AS runtime
+FROM node:24.22.0-alpine3.24@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS runtime
 WORKDIR /app
 ENV NODE_ENV=production SPRUTHUB_CREDENTIALS_FILE=/var/run/spruthub/credentials.json
 COPY --from=build --chown=node:node /cli/package.json ./

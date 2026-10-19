@@ -27,8 +27,12 @@ docker build --platform linux/amd64 -f spruthub-cli/deploy/Dockerfile \
 
 Docker uses each project's locked dependencies, tests both sources and copies the
 local client with its own production dependencies. The final image is a non-root
-Node process using file credentials. Native keytar is loaded lazily by interactive
-profiles and is not required for the collector. The Docker context allowlist
+Node 24 Alpine process using file credentials. All stages pin the official
+`node:24.22.0-alpine3.24` image by its immutable index digest. The collector uses musl-compatible JavaScript
+dependencies. Native keytar is
+loaded lazily by interactive profiles, is not built in this image, and is not
+required for the collector; interactive keychain login is outside this image
+contract. The Docker context allowlist
 excludes `.env`, credentials, `.git` and local node_modules. To reproduce a runtime
 smoke test, mount `tests/collector` read-only at `/app/tests/collector`, provide a
 writable `/tmp` tmpfs and run those `.mjs` files with `node --test`; the fake

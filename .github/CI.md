@@ -41,6 +41,15 @@ The archive allowlist and content patterns reject env/credential/workspace/priva
 artifacts. Checks use mock credentials on loopback; they never contact a hub,
 OpenBao, registry or production cluster. No job publishes, merges, tags or deploys.
 
+## Alpine container
+
+The container job builds linux/amd64 using the pinned official Node 24 Alpine
+image and immutable paired client ref. All library/CLI/collector suites run under
+musl during the build. Seven runtime tests repeat with no network, read-only root,
+UID 1000 and a 192MiB memory limit; Node 24/musl/architecture are asserted and
+unpacked image size is recorded. Native keytar is outside the file-credential
+collector image contract.
+
 ## Release review (publish.yml remains separate)
 
 The existing release workflow triggers only v* tag pushes and uses OIDC trusted
