@@ -1,0 +1,86 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main, 'codex/**']
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  unit:
+    name: Unit + published-dependency install/startup / Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22', '24']
+    outputs:
+      standalone_ready: ${{ steps.package.outputs.standalone_ready }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run lint
+      - run: npm test -- --runInBand
+      - run: npm run build
+      - id: package
+        run: node .github/scripts/package-smoke.cjs
+  paired:
+    name: Required paired-source + clean archive collector
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Immutable reviewed client commit. Never use a PR-supplied ref or token.
+      PAIRED_CLIENT_REF: 6cc465d5d8e059d6b8b76c02d1c2c099be953358
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: shady2k/spruthub-client
+          ref: ${{ env.PAIRED_CLIENT_REF }}
+          path: .paired-client
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Record exact paired dependency
+        run: |
+          test "$(git -C .paired-client rev-parse HEAD)" = "$PAIRED_CLIENT_REF"
+          echo "Paired client commit: $PAIRED_CLIENT_REF" >> "$GITHUB_STEP_SUMMARY"
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm ci --prefix .paired-client --ignore-scripts --no-audit --no-fund
+      - name: Use exact source client for source collector tests
+        run: |
+          rm -rf node_modules/spruthub-client
+          ln -s ../.paired-client node_modules/spruthub-client
+          node -e "require('node:assert/strict').equal(typeof require('spruthub-client').Sprut.prototype.watchLogs, 'function')"
+      - run: npm run test:collector
+      - name: Pack both projects and test a clean installed pair
+        run: node .github/scripts/package-smoke.cjs --client-source .paired-client
+  standalone-release:
+    name: Standalone collector release gate (skipped means unreleased dependency)
+    needs: unit
+    if: needs.unit.outputs.standalone_ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build
+      # Strict: no override, no skip, fail if published dependency lacks watchLogs.
+      - run: node .github/scripts/package-smoke.cjs --strict-standalone

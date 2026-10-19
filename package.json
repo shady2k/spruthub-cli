@@ -3,14 +3,14 @@
   "version": "1.0.5",
   "description": "CLI tool for managing Spruthub smart home devices",
   "type": "module",
-  "main": "dist/cli.js",
+  "main": "dist/src/cli.js",
   "bin": {
     "spruthub-cli": "dist/bin/spruthub-cli.js"
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsx bin/spruthub-cli.ts",
-    "start": "node bin/spruthub-cli.js",
+    "start": "node dist/bin/spruthub-cli.js",
     "test": "jest",
     "test:collector": "npm run build && node --test tests/collector/*.mjs",
     "lint": "eslint src/**/*.ts",
